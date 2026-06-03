@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+websockets
+sqlmodel
+onnxruntime
+tflite-runtime
+numpy
+Pillow
+python-multipart
