@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useRobotsContext } from '../../context/RobotsContext'
+import { useRobotsContext } from '../context/RobotsContext'
+
 import RobotDetail from './RobotDetail'
-import AddRobotModal from '../robots/AddRobotModal'
+import AddRobotModal from '../components/robots/AddRobotModal'
 
 export function Dashboard() {
   const { selectedRobotId } = useRobotsContext()

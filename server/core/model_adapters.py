@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,21 @@ try:
     from tflite_runtime.interpreter import Interpreter
 except ImportError:  # pragma: no cover
     Interpreter = None
+
+try:
+    from rfdetr import RFDETRNano
+except ImportError:  # pragma: no cover
+    RFDETRNano = None
+
+try:
+    import supervision as sv
+except ImportError:  # pragma: no cover
+    sv = None
+
+try:
+    import cv2
+except ImportError:  # pragma: no cover
+    cv2 = None
 
 logger = logging.getLogger("pest_robot_server.model_adapters")
 
@@ -27,6 +43,38 @@ DEFAULT_LABELS = [
     "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
     "hair drier", "toothbrush",
 ]
+
+
+def load_dataset_classes(annotations_path: str) -> dict[int, str]:
+    """
+    Load class ID → class name mapping from a COCO-format annotations file.
+    Roboflow exports categories sorted by ID, but we sort explicitly to be safe.
+    """
+    if not annotations_path or not os.path.exists(annotations_path):
+        raise FileNotFoundError(f"Annotations file not found: {annotations_path}")
+
+    decode_attempts = ["utf-8", "utf-8-sig", "cp1252"]
+    last_error = None
+    for encoding in decode_attempts:
+        try:
+            with open(annotations_path, "r", encoding=encoding) as f:
+                coco = json.load(f)
+            break
+        except UnicodeDecodeError as exc:
+            last_error = exc
+            continue
+    else:
+        raise UnicodeDecodeError(
+            "Unable to decode annotations file. Tried utf-8, utf-8-sig, and cp1252.",
+            *last_error.args,
+        ) from last_error
+
+    if "categories" not in coco:
+        raise KeyError("No 'categories' key found in annotations file — is this a valid COCO JSON?")
+
+    # Build {id: name} dict sorted by ID so index lookups are always correct
+    return {cat["id"]: cat["name"] for cat in sorted(coco["categories"], key=lambda c: c["id"])}
+
 
 
 @dataclass
@@ -241,6 +289,78 @@ class TFLiteModelAdapter(ModelAdapter):
         return self._format_detections(boxes, class_scores, class_indices)
 
 
+class RFDETRNanoAdapter(ModelAdapter):
+    """Adapter for Roboflow RF-DETR Nano models using rfdetr library."""
+
+    def __init__(self, model_path: Path, labels: Optional[Sequence[str]] = None) -> None:
+        super().__init__(model_path, labels)
+        if RFDETRNano is None:
+            raise RuntimeError("rfdetr package is required for RF-DETR Nano model execution")
+        self.architecture = "rfdtr_nano"
+        self._model = None
+
+    def load(self) -> None:
+        """Load RF-DETR Nano model."""
+        if RFDETRNano is None:
+            raise RuntimeError("rfdetr is not installed")
+        
+        try:
+            self._model = RFDETRNano()
+            logger.info("Loaded RF-DETR Nano model")
+        except Exception as e:
+            logger.error("Failed to load RF-DETR Nano model: %s", e)
+            raise
+
+    def infer(self, image: Image.Image) -> dict:
+        """Run inference using RF-DETR Nano model."""
+        if self._model is None:
+            raise RuntimeError("RF-DETR Nano adapter has not been loaded")
+        
+        try:
+            if cv2 is None:
+                raise RuntimeError("cv2 is not installed")
+            
+            # Convert PIL image to RGB numpy array
+            image_rgb = np.array(image.convert("RGB"))
+            
+            # Run inference with threshold
+            detections = self._model.predict(image_rgb, threshold=0.5)
+            
+            return self._parse_detections(detections)
+        except Exception as e:
+            logger.error("RF-DETR Nano inference failed: %s", e)
+            raise
+
+    def _parse_detections(self, detections: Any) -> dict:
+        """Parse RF-DETR Nano detections into standard format."""
+        try:
+            boxes = []
+            scores = []
+            labels = []
+            
+            # RF-DETR returns detections with class_id and confidence attributes
+            if hasattr(detections, "xyxy"):
+                # Standard supervision format: xyxy box format
+                for i, (box, class_id, conf) in enumerate(
+                    zip(detections.xyxy, detections.class_id, detections.confidence)
+                ):
+                    boxes.append(box.tolist() if hasattr(box, "tolist") else list(box))
+                    scores.append(float(conf))
+                    # Map class_id to label
+                    label_index = int(class_id) if class_id is not None else 0
+                    if 0 <= label_index < len(self.labels):
+                        labels.append(self.labels[label_index])
+                    else:
+                        labels.append(str(label_index))
+            
+            return {
+                "boxes": boxes,
+                "scores": scores,
+                "labels": labels,
+            }
+        except Exception as e:
+            logger.error("Failed to parse RF-DETR detections: %s", e)
+            raise
 class ModelRegistry:
     """Keeps track of available model adapters and exposes discovery."""
 
@@ -275,9 +395,39 @@ class ModelRegistry:
         if not self.model_root.exists():
             logger.warning("Model root does not exist: %s", self.model_root)
             return
+        
+        # Look for COCO annotations file
+        coco_annotations = None
+        for ann_file in self.model_root.glob("*_annotations.coco.json"):
+            coco_annotations = ann_file
+            break
+        
+        # Load labels from COCO annotations if available
+        labels = None
+        if coco_annotations:
+            try:
+                class_dict = load_dataset_classes(str(coco_annotations))
+                # Convert {id: name} dict to a list indexed by id
+                max_id = max(class_dict.keys()) if class_dict else 0
+                labels = [""] * (max_id + 1)
+                for class_id, class_name in class_dict.items():
+                    labels[class_id] = class_name
+                logger.info("Loaded %d classes from COCO annotations: %s", len(labels), coco_annotations)
+            except Exception as e:
+                logger.warning("Failed to load COCO annotations from %s: %s", coco_annotations, e)
+                labels = None
+        
+        # Discover ONNX models
         for model_path in sorted(self.model_root.glob("*.onnx")):
             name = model_path.stem
             adapter_cls = RFDTROnnxAdapter if "rfdtr" in name.lower() else OnnxModelAdapter
-            self.register(name, adapter_cls(model_path))
+            self.register(name, adapter_cls(model_path, labels=labels or None))
+        
+        # Discover TFLite models
         for model_path in sorted(self.model_root.glob("*.tflite")):
-            self.register(model_path.stem, TFLiteModelAdapter(model_path))
+            self.register(model_path.stem, TFLiteModelAdapter(model_path, labels=labels or None))
+        
+        # Discover RF-DETR Nano models (.pt files)
+        for model_path in sorted(self.model_root.glob("*.pt")):
+            name = model_path.stem
+            self.register(name, RFDETRNanoAdapter(model_path, labels=labels or None))

@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { useRobotsContext } from '../../context/RobotsContext'
-import StreamView from '../stream/StreamView'
-import CommandPanel from '../controls/CommandPanel'
-import DetectionChart from '../charts/DetectionChart'
-import useRobotStream from '../../hooks/useRobotStream'
+import { useRobotsContext } from '../context/RobotsContext'
+import StreamView from '../components/stream/StreamView'
+import CommandPanel from '../components/controls/CommandPanel'
+import DetectionChart from '../components/charts/DetectionChart'
+import useRobotStream from '../hooks/useRobotStream'
 
 export function RobotDetail({ robotId }) {
   const { robots } = useRobotsContext()

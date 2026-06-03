@@ -3,7 +3,9 @@ uvicorn[standard]
 websockets
 sqlmodel
 onnxruntime
-tflite-runtime
+rfdetr
+supervision
+opencv-python
 numpy
 Pillow
 python-multipart

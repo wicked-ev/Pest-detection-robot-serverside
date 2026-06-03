@@ -1,6 +1,8 @@
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,21 +16,10 @@ from routers.stream import router as stream_router
 logger = logging.getLogger("pest_robot_server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-app = FastAPI(title="Pest Detection Robot Server")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-app.include_router(control_router)
-app.include_router(stream_router)
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
+@asynccontextmanager
+async def lifespan(app) -> AsyncGenerator[None, None]:
+    # Startup
     app.state.robot_store = RobotStore(db_url="sqlite:///./robot_store.db")
     app.state.command_queues = {}
 
@@ -48,13 +39,27 @@ async def startup_event() -> None:
         app.state.inference_worker.run(app.state.shutdown_event)
     )
 
+    try:
+        yield
+    finally:
+        # Shutdown
+        if hasattr(app.state, "shutdown_event"):
+            app.state.shutdown_event.set()
+        if hasattr(app.state, "worker_task"):
+            await app.state.worker_task
 
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    if hasattr(app.state, "shutdown_event"):
-        app.state.shutdown_event.set()
-    if hasattr(app.state, "worker_task"):
-        await app.state.worker_task
+
+app = FastAPI(title="Pest Detection Robot Server", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(control_router)
+app.include_router(stream_router)
 
 
 @app.get("/health")

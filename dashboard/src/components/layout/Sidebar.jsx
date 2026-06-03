@@ -7,7 +7,7 @@ export function Sidebar({ onAddRobot }) {
   const { robots } = useRobotsContext()
 
   return (
-    <div className="w-80 border-r border-border bg-surface flex flex-col h-screen">
+    <div className="w-80 border-r border-border bg-surface flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {Object.values(robots).map((robot) => (
           <RobotCard key={robot.robot_id} robot={robot} />
