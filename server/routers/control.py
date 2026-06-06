@@ -13,6 +13,7 @@ logger = logging.getLogger("pest_robot_server.control")
 router = APIRouter()
 
 VALID_COMMANDS = {"start_stream", "stop_stream", "reboot", "stop"}
+HEARTBEAT_TIMEOUT_SECONDS = 40.0
 
 
 class RegisterRobotPayload(BaseModel):
@@ -130,7 +131,13 @@ async def control_ws(robot_id: str, websocket: WebSocket, request: Request) -> N
     queue = command_queues.setdefault(robot_id, asyncio.Queue())
 
     client_ip = websocket.client.host if websocket.client else None
-    store.update_status(robot_id, status="online", ip_address=client_ip, last_seen=datetime.utcnow())
+    await asyncio.to_thread(
+        store.update_status,
+        robot_id,
+        status="online",
+        ip_address=client_ip,
+        last_seen=datetime.utcnow(),
+    )
 
     async def send_commands() -> None:
         while True:
@@ -141,10 +148,25 @@ async def control_ws(robot_id: str, websocket: WebSocket, request: Request) -> N
 
     try:
         while True:
-            message = await websocket.receive_json()
+            try:
+                message = await asyncio.wait_for(websocket.receive_json(), timeout=HEARTBEAT_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "No heartbeat received from %s for %.0f seconds; closing control socket",
+                    robot_id,
+                    HEARTBEAT_TIMEOUT_SECONDS,
+                )
+                await websocket.close(code=1001)
+                break
             if isinstance(message, dict) and message.get("type") == "heartbeat":
                 status_text = message.get("status", "ok")
-                store.update_status(robot_id, status="online", last_seen=datetime.utcnow(), ip_address=client_ip)
+                await asyncio.to_thread(
+                    store.update_status,
+                    robot_id,
+                    status="online",
+                    last_seen=datetime.utcnow(),
+                    ip_address=client_ip,
+                )
                 logger.debug("Received heartbeat from %s: %s", robot_id, status_text)
     except WebSocketDisconnect:
         logger.info("Control socket disconnected for %s", robot_id)
@@ -152,4 +174,4 @@ async def control_ws(robot_id: str, websocket: WebSocket, request: Request) -> N
         logger.exception("Unhandled error on control websocket for %s: %s", robot_id, exc)
     finally:
         send_task.cancel()
-        store.update_status(robot_id, status="offline", last_seen=datetime.utcnow())
+        await asyncio.to_thread(store.update_status, robot_id, status="offline", last_seen=datetime.utcnow())

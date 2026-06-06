@@ -29,10 +29,30 @@ async def lifespan(app) -> AsyncGenerator[None, None]:
     models = app.state.model_registry.list_models()
     if not models:
         raise RuntimeError("No detection models were discovered in the models directory")
-
-    default_model_name = "onnx" if any(m["name"] == "onnx" for m in models) else models[0]["name"]
+    # Prefer a .pt (RF-DETR) model as the default if available, otherwise fall back
+    default_model_name = next(
+        (m["name"] for m in models if m.get("metadata", {}).get("format") == ".pt"),
+        None,
+    )
+    if not default_model_name:
+        # Fallback: prefer architectures with 'rfdtr' then keep existing heuristic
+        default_model_name = next((m["name"] for m in models if "rfdtr" in m.get("architecture", "").lower()), None)
+    if not default_model_name:
+        default_model_name = "onnx" if any(m["name"] == "onnx" for m in models) else models[0]["name"]
     app.state.inference_worker = InferenceWorker(app.state.model_registry, app.state.robot_store, default_model_name=default_model_name)
     await app.state.inference_worker.start()
+
+    # Preload the default model in the background so startup stays fast
+    async def _preload_default_model() -> None:
+        try:
+            adapter = app.state.model_registry.get(default_model_name)
+            logger.info("Preloading default model %s in background", default_model_name)
+            await asyncio.to_thread(adapter.load)
+            logger.info("Preloaded default model %s", default_model_name)
+        except Exception:
+            logger.exception("Failed to preload default model %s", default_model_name)
+
+    app.state.preload_task = asyncio.create_task(_preload_default_model())
 
     app.state.shutdown_event = asyncio.Event()
     app.state.worker_task = asyncio.create_task(
@@ -45,6 +65,14 @@ async def lifespan(app) -> AsyncGenerator[None, None]:
         # Shutdown
         if hasattr(app.state, "shutdown_event"):
             app.state.shutdown_event.set()
+        if hasattr(app.state, "preload_task"):
+            try:
+                app.state.preload_task.cancel()
+                await app.state.preload_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception("Error while awaiting preload task during shutdown")
         if hasattr(app.state, "worker_task"):
             await app.state.worker_task
 

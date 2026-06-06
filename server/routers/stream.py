@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Any, Optional
@@ -46,8 +47,8 @@ async def stream_ws(robot_id: str, websocket: WebSocket, request: Request) -> No
     worker = get_inference_worker(request)
 
     client_ip = websocket.client.host if websocket.client else None
-    store.update_status(robot_id, status="online", ip_address=client_ip)
-    store.set_streaming(robot_id, True)
+    await asyncio.to_thread(store.update_status, robot_id, status="online", ip_address=client_ip)
+    await asyncio.to_thread(store.set_streaming, robot_id, True)
 
     async def send_detection(result: dict) -> None:
         await websocket.send_json(result)
@@ -81,4 +82,4 @@ async def stream_ws(robot_id: str, websocket: WebSocket, request: Request) -> No
     finally:
         await worker.unregister_callback(robot_id)
         await worker.flush_queue(robot_id)
-        store.set_streaming(robot_id, False)
+        await asyncio.to_thread(store.set_streaming, robot_id, False)

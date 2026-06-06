@@ -94,6 +94,7 @@ class ModelAdapter(ABC):
         self.labels = list(labels or DEFAULT_LABELS)
         self.model_name = model_path.stem
         self.architecture = "generic"
+        self._loaded = False
 
     @abstractmethod
     def load(self) -> None:
@@ -102,6 +103,9 @@ class ModelAdapter(ABC):
     @abstractmethod
     def infer(self, image: Image.Image) -> dict:
         raise NotImplementedError
+
+    def is_loaded(self) -> bool:
+        return self._loaded
 
     def model_info(self) -> ModelInfo:
         return ModelInfo(
@@ -180,6 +184,7 @@ class OnnxModelAdapter(ModelAdapter):
         if not inputs:
             raise RuntimeError("ONNX model has no inputs")
         self._input_name = inputs[0].name
+        self._loaded = True
         logger.info("Loaded ONNX model %s", self.model_path)
 
     def infer(self, image: Image.Image) -> dict:
@@ -243,21 +248,37 @@ class TFLiteModelAdapter(ModelAdapter):
         if Interpreter is None:
             raise RuntimeError("tflite-runtime is required for TFLite model execution")
         self.architecture = "tflite"
-        self._interpreter = Interpreter(model_path=str(model_path))
+        self._interpreter = None
+        self._input_index = None
+        self._input_shape = None
+        self._input_dtype = None
+        self._output_details = None
+        logger.info("Registered TFLite model %s", self.model_path)
+
+    def load(self) -> None:
+        if self._interpreter is not None:
+            self._loaded = True
+            return
+
+        self._interpreter = Interpreter(model_path=str(self.model_path))
         self._interpreter.allocate_tensors()
         input_details = self._interpreter.get_input_details()[0]
         self._input_index = input_details["index"]
         self._input_shape = tuple(input_details["shape"])
         self._input_dtype = input_details["dtype"]
         self._output_details = self._interpreter.get_output_details()
+        self._loaded = True
         logger.info("Loaded TFLite model %s", self.model_path)
 
-    def load(self) -> None:
-        # Interpreter is initialized in __init__, we only check its availability here.
-        if self._interpreter is None:
-            raise RuntimeError("TFLite interpreter initialization failed")
-
     def infer(self, image: Image.Image) -> dict:
+        if (
+            self._interpreter is None
+            or self._input_index is None
+            or self._input_shape is None
+            or self._input_dtype is None
+            or self._output_details is None
+        ):
+            raise RuntimeError("TFLite adapter has not been loaded")
         target_size = (self._input_shape[2], self._input_shape[1]) if len(self._input_shape) == 4 else (640, 640)
         tensor = self._preprocess(image, target_size=target_size)
         if self._input_shape[-1] == 3:
@@ -306,6 +327,7 @@ class RFDETRNanoAdapter(ModelAdapter):
         
         try:
             self._model = RFDETRNano()
+            self._loaded = True
             logger.info("Loaded RF-DETR Nano model")
         except Exception as e:
             logger.error("Failed to load RF-DETR Nano model: %s", e)
