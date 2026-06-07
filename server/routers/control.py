@@ -124,10 +124,10 @@ async def send_wifi_credentials(robot_id: str, payload: WifiPayload, request: Re
 
 
 @router.websocket("/ws/control/{robot_id}")
-async def control_ws(robot_id: str, websocket: WebSocket, request: Request) -> None:
+async def control_ws(robot_id: str, websocket: WebSocket) -> None:
     await websocket.accept()
-    store = get_robot_store(request)
-    command_queues = get_command_queues(request)
+    store = websocket.app.state.robot_store
+    command_queues = websocket.app.state.command_queues
     queue = command_queues.setdefault(robot_id, asyncio.Queue())
 
     client_ip = websocket.client.host if websocket.client else None

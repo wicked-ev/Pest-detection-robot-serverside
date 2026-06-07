@@ -41,10 +41,10 @@ async def _receive_initial_model(websocket: WebSocket) -> tuple[Optional[str], O
 
 
 @router.websocket("/ws/stream/{robot_id}")
-async def stream_ws(robot_id: str, websocket: WebSocket, request: Request) -> None:
+async def stream_ws(robot_id: str, websocket: WebSocket) -> None:
     await websocket.accept()
-    store = get_robot_store(request)
-    worker = get_inference_worker(request)
+    store = websocket.app.state.robot_store
+    worker = websocket.app.state.inference_worker
 
     client_ip = websocket.client.host if websocket.client else None
     await asyncio.to_thread(store.update_status, robot_id, status="online", ip_address=client_ip)
