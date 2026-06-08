@@ -327,6 +327,7 @@ class RFDETRNanoAdapter(ModelAdapter):
         
         try:
             self._model = RFDETRNano()
+            self._model.optimize_for_inference()
             self._loaded = True
             logger.info("Loaded RF-DETR Nano model")
         except Exception as e:
