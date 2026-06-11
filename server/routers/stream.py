@@ -48,7 +48,7 @@ async def stream_ws(robot_id: str, websocket: WebSocket) -> None:
     worker = websocket.app.state.inference_worker
 
     client_ip = websocket.client.host if websocket.client else None
-    await asyncio.to_thread(store.update_status, robot_id, status="online", ip_address=client_ip)
+
     await asyncio.to_thread(store.set_streaming, robot_id, True)
 
     async def send_detection(result: dict) -> None:
