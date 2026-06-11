@@ -147,18 +147,11 @@ async def send_wifi_credentials(robot_id: str, payload: WifiPayload, request: Re
 @router.websocket("/ws/control/{robot_id}")
 async def control_ws(robot_id: str, websocket: WebSocket) -> None:
     await websocket.accept()
+    client_ip = websocket.client.host if websocket.client else None
+    # Do not set robot status to online here; status will be updated on heartbeat messages only
     store = websocket.app.state.robot_store
     command_queues = websocket.app.state.command_queues
     queue = command_queues.setdefault(robot_id, asyncio.Queue())
-
-    client_ip = websocket.client.host if websocket.client else None
-    await asyncio.to_thread(
-        store.update_status,
-        robot_id,
-        status="online",
-        ip_address=client_ip,
-        last_seen=datetime.utcnow(),
-    )
 
     async def send_commands() -> None:
         while True:
