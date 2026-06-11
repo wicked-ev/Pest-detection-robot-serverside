@@ -94,6 +94,27 @@ async def get_model(model_name: str, request: Request) -> Any:
     }
 
 
+@router.get("/api/models/{model_name}/availability")
+async def check_model_availability(model_name: str, request: Request) -> Dict[str, Any]:
+    registry = get_model_registry(request)
+    try:
+        adapter = registry.get(model_name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    info = adapter.model_info()
+    loaded = adapter.is_loaded()
+    return {
+        "name": info.name,
+        "architecture": info.architecture,
+        "path": str(info.path),
+        "exists": info.path.exists(),
+        "loaded": loaded,
+        "ready_for_detection": loaded and info.path.exists(),
+        "metadata": info.metadata,
+    }
+
+
 @router.post("/api/robots/{robot_id}/command")
 async def send_command(robot_id: str, payload: RobotCommandPayload, request: Request) -> Any:
     store = get_robot_store(request)

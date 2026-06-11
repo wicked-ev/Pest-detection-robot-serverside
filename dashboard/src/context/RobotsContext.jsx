@@ -5,6 +5,7 @@ export const RobotsContext = createContext()
 export function RobotsProvider({ children }) {
   const [robots, setRobots] = useState({})
   const [selectedRobotId, setSelectedRobotId] = useState(null)
+  const [refreshRobots, setRefreshRobots] = useState(null)
 
   const updateRobots = useCallback((robotList) => {
     const robotMap = {}
@@ -18,11 +19,17 @@ export function RobotsProvider({ children }) {
     setSelectedRobotId(id)
   }, [])
 
+  const registerRefreshRobots = useCallback((refreshFn) => {
+    setRefreshRobots(() => refreshFn)
+  }, [])
+
   const value = {
     robots,
     selectedRobotId,
     updateRobots,
     selectRobot,
+    refreshRobots,
+    registerRefreshRobots,
   }
 
   return <RobotsContext.Provider value={value}>{children}</RobotsContext.Provider>

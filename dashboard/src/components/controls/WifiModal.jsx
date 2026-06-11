@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Eye, EyeOff, CheckCircle, AlertCircle, X } from 'lucide-react'
 import APIClient from '../../api/client'
+import { useRobotsContext } from '../../context/RobotsContext'
 
 export function WifiModal({ robotId, onClose }) {
   const [ssid, setSsid] = useState('')
@@ -9,6 +10,7 @@ export function WifiModal({ robotId, onClose }) {
   const [isLoading, setIsLoading] = useState(false)
   const [state, setState] = useState('idle') // 'idle' | 'success' | 'error'
   const [errorMessage, setErrorMessage] = useState('')
+  const { refreshRobots } = useRobotsContext()
 
   const handleSubmit = async () => {
     if (!ssid.trim() || !password.trim()) {
@@ -22,6 +24,7 @@ export function WifiModal({ robotId, onClose }) {
       setState('idle')
       setErrorMessage('')
       await APIClient.sendWifiCredentials(robotId, ssid, password)
+      await refreshRobots?.()
       setState('success')
       setTimeout(() => {
         onClose()

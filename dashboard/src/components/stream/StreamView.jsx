@@ -3,6 +3,7 @@ import { Play, Square } from 'lucide-react'
 import useRobotStream from '../../hooks/useRobotStream'
 import DetectionOverlay from './DetectionOverlay'
 import APIClient from '../../api/client'
+import { useRobotsContext } from '../../context/RobotsContext'
 
 export function StreamView({ robotId, modelName = 'onnx' }) {
   const { frameUrl, detections, fps, isConnected } = useRobotStream(robotId, modelName)
@@ -10,11 +11,13 @@ export function StreamView({ robotId, modelName = 'onnx' }) {
   const [isLoading, setIsLoading] = useState(false)
   const imgRef = useRef(null)
   const [imgDimensions, setImgDimensions] = useState({ width: 640, height: 640 })
+  const { refreshRobots } = useRobotsContext()
 
   const handleStartStream = async () => {
     try {
       setIsLoading(true)
       await APIClient.sendCommand(robotId, 'start_stream')
+      await refreshRobots?.()
       setIsStreaming(true)
     } catch (err) {
       console.error('Failed to start stream:', err)
@@ -27,6 +30,7 @@ export function StreamView({ robotId, modelName = 'onnx' }) {
     try {
       setIsLoading(true)
       await APIClient.sendCommand(robotId, 'stop_stream')
+      await refreshRobots?.()
       setIsStreaming(false)
     } catch (err) {
       console.error('Failed to stop stream:', err)

@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://192.168.1.8:8000";
 
 export class APIClient {
   static async request(endpoint, options = {}) {
@@ -13,6 +13,7 @@ export class APIClient {
 
     const response = await fetch(url, {
       ...options,
+      cache: "no-store",
       headers,
     });
 
@@ -26,12 +27,13 @@ export class APIClient {
     return response.json();
   }
 
-  static async get(endpoint) {
-    return this.request(endpoint, { method: "GET" });
+  static async get(endpoint, options = {}) {
+    return this.request(endpoint, { ...options, method: "GET" });
   }
 
-  static async post(endpoint, body) {
+  static async post(endpoint, body, options = {}) {
     return this.request(endpoint, {
+      ...options,
       method: "POST",
       body: JSON.stringify(body),
     });

@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Zap, RotateCcw, Power, Wifi } from 'lucide-react'
 import APIClient from '../../api/client'
 import WifiModal from './WifiModal'
+import { useRobotsContext } from '../../context/RobotsContext'
 
 export function CommandPanel({ robotId, robotStatus }) {
   const [isLoading, setIsLoading] = useState(false)
   const [showWifiModal, setShowWifiModal] = useState(false)
+  const { refreshRobots } = useRobotsContext()
   const isOnline = robotStatus === 'online'
   const isProvisioning = robotStatus === 'provisioning'
 
@@ -13,6 +15,7 @@ export function CommandPanel({ robotId, robotStatus }) {
     try {
       setIsLoading(true)
       await APIClient.sendCommand(robotId, command)
+      await refreshRobots?.()
     } catch (err) {
       console.error(`Failed to send command '${command}':`, err)
     } finally {

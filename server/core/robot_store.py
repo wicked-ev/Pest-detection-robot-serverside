@@ -44,7 +44,7 @@ class RobotStore:
                 record = RobotRecord(robot_id=robot_id, name=name)
             record.name = name
             record.ip_address = ip_address
-            record.status = "online"
+            record.status = "offline"
             record.last_seen = now
             session.add(record)
             session.commit()

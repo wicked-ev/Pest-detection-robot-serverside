@@ -4,7 +4,7 @@ import APIClient from '../../api/client'
 import { useRobotsContext } from '../../context/RobotsContext'
 
 export function AddRobotModal({ onClose }) {
-  const { selectRobot } = useRobotsContext()
+  const { selectRobot, refreshRobots } = useRobotsContext()
   const [robotId, setRobotId] = useState('')
   const [name, setName] = useState('')
   const [ipAddress, setIpAddress] = useState('')
@@ -24,6 +24,7 @@ export function AddRobotModal({ onClose }) {
       setState('idle')
       setErrorMessage('')
       await APIClient.registerRobot(robotId, name, ipAddress)
+      await refreshRobots?.()
       setState('success')
       setTimeout(() => {
         selectRobot(robotId)

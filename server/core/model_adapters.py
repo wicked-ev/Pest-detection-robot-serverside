@@ -31,6 +31,8 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger("pest_robot_server.model_adapters")
 
+
+# delete later
 DEFAULT_LABELS = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
     "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog",

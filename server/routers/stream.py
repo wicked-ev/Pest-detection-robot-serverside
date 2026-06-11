@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
@@ -83,3 +84,4 @@ async def stream_ws(robot_id: str, websocket: WebSocket) -> None:
         await worker.unregister_callback(robot_id)
         await worker.flush_queue(robot_id)
         await asyncio.to_thread(store.set_streaming, robot_id, False)
+        await asyncio.to_thread(store.update_status, robot_id, status="offline", last_seen=datetime.utcnow())
