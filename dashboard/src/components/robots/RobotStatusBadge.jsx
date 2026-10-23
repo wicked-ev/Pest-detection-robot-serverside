@@ -1,7 +1,6 @@
 export function RobotStatusBadge({ status }) {
   const statusConfig = {
     online: { bg: 'bg-accent', text: 'text-background' },
-    provisioning: { bg: 'bg-warning', text: 'text-background' },
     offline: { bg: 'bg-text-secondary', text: 'text-background' },
   }
 

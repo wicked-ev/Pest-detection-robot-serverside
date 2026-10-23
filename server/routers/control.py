@@ -6,13 +6,15 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from core.auth import authorize_robot
 from core.model_adapters import ModelRegistry
 from core.robot_store import RobotStore
 
 logger = logging.getLogger("pest_robot_server.control")
 router = APIRouter()
 
-VALID_COMMANDS = {"start_stream", "stop_stream", "reboot", "stop"}
+# "halt" stops the motors; "shutdown" powers the robot off (the Pi treats "stop" as shutdown too).
+VALID_COMMANDS = {"start_stream", "stop_stream", "halt", "reboot", "shutdown"}
 HEARTBEAT_TIMEOUT_SECONDS = 40.0
 
 
@@ -26,9 +28,12 @@ class RobotCommandPayload(BaseModel):
     command: str
 
 
-class WifiPayload(BaseModel):
-    ssid: str
-    password: str
+def robot_json(robot: Any) -> Dict[str, Any]:
+    data = robot.dict()
+    # Stored as naive UTC; the "Z" stops browsers from reading it as local time.
+    if data.get("last_seen") is not None:
+        data["last_seen"] = data["last_seen"].isoformat() + "Z"
+    return data
 
 
 def get_robot_store(request: Request) -> RobotStore:
@@ -52,15 +57,14 @@ async def register_robot(
     robot = store.register_robot(payload.robot_id, payload.name, payload.ip_address)
     command_queue = get_command_queues(request)
     command_queue.setdefault(payload.robot_id, asyncio.Queue())
-    # TODO: Add authentication for registration and command endpoints.
-    return {"robot_id": robot.robot_id, "token": f"token-{robot.robot_id}"}
+    return robot_json(robot)
 
 
 @router.get("/api/robots")
 async def list_robots(request: Request) -> Any:
     store = get_robot_store(request)
     robots = store.get_all_robots()
-    return [robot.dict() for robot in robots]
+    return [robot_json(robot) for robot in robots]
 
 
 @router.get("/api/robots/{robot_id}")
@@ -69,7 +73,7 @@ async def get_robot(robot_id: str, request: Request) -> Any:
     robot = store.get_robot(robot_id)
     if robot is None:
         raise HTTPException(status_code=404, detail="Robot not found")
-    return robot.dict()
+    return robot_json(robot)
 
 
 @router.get("/api/models")
@@ -123,35 +127,39 @@ async def send_command(robot_id: str, payload: RobotCommandPayload, request: Req
         raise HTTPException(status_code=404, detail="Robot not found")
     if payload.command not in VALID_COMMANDS:
         raise HTTPException(status_code=400, detail="Invalid command")
+    # Refuse rather than queue: a command left waiting would run whenever the robot next connects.
+    if robot_id not in request.app.state.control_connections:
+        raise HTTPException(status_code=409, detail="Robot is not connected")
     queue = get_command_queues(request).setdefault(robot_id, asyncio.Queue())
     await queue.put({"command": payload.command})
     logger.info("Queued command %s for robot %s", payload.command, robot_id)
     return {"status": "queued", "robot_id": robot_id, "command": payload.command}
 
 
-@router.post("/api/robots/{robot_id}/wifi")
-async def send_wifi_credentials(robot_id: str, payload: WifiPayload, request: Request) -> Any:
-    store = get_robot_store(request)
-    robot = store.get_robot(robot_id)
-    if robot is None:
-        raise HTTPException(status_code=404, detail="Robot not found")
-    if robot.status != "provisioning":
-        raise HTTPException(status_code=400, detail="Robot is not in provisioning mode")
-    queue = get_command_queues(request).setdefault(robot_id, asyncio.Queue())
-    await queue.put({"command": "wifi_config", "ssid": payload.ssid, "password": payload.password})
-    # TODO: Add mDNS discovery for provisioning mode and credential provisioning.
-    logger.info("Queued WiFi configuration for provisioning robot %s", robot_id)
-    return {"status": "queued", "robot_id": robot_id}
-
-
 @router.websocket("/ws/control/{robot_id}")
 async def control_ws(robot_id: str, websocket: WebSocket) -> None:
+    """Robot side only: the robot sends heartbeats and receives queued commands."""
+    if not await authorize_robot(websocket):
+        return
     await websocket.accept()
     client_ip = websocket.client.host if websocket.client else None
     # Do not set robot status to online here; status will be updated on heartbeat messages only
     store = websocket.app.state.robot_store
+    connections = websocket.app.state.control_connections
     command_queues = websocket.app.state.command_queues
     queue = command_queues.setdefault(robot_id, asyncio.Queue())
+
+    # A reconnecting robot replaces its stale connection, so only one socket consumes commands.
+    previous = connections.get(robot_id)
+    connections[robot_id] = websocket
+    if previous is not None:
+        logger.info("Replacing previous control connection for %s", robot_id)
+        try:
+            await previous.close(code=1001)
+        except Exception:
+            pass
+
+    await asyncio.to_thread(store.ensure_robot, robot_id, client_ip)
 
     async def send_commands() -> None:
         while True:
@@ -173,7 +181,8 @@ async def control_ws(robot_id: str, websocket: WebSocket) -> None:
                 await websocket.close(code=1001)
                 break
             if isinstance(message, dict) and message.get("type") == "heartbeat":
-                status_text = message.get("status", "ok")
+                # The Pi reports its state machine value as "state".
+                status_text = message.get("state") or message.get("status", "ok")
                 await asyncio.to_thread(
                     store.update_status,
                     robot_id,
@@ -182,10 +191,15 @@ async def control_ws(robot_id: str, websocket: WebSocket) -> None:
                     ip_address=client_ip,
                 )
                 logger.debug("Received heartbeat from %s: %s", robot_id, status_text)
+            else:
+                logger.debug("Received control message from %s: %s", robot_id, message)
     except WebSocketDisconnect:
         logger.info("Control socket disconnected for %s", robot_id)
     except Exception as exc:
         logger.exception("Unhandled error on control websocket for %s: %s", robot_id, exc)
     finally:
         send_task.cancel()
-        await asyncio.to_thread(store.update_status, robot_id, status="offline", last_seen=datetime.utcnow())
+        # Skip if a newer connection for this robot has already taken over.
+        if connections.get(robot_id) is websocket:
+            del connections[robot_id]
+            await asyncio.to_thread(store.update_status, robot_id, status="offline", last_seen=datetime.utcnow())

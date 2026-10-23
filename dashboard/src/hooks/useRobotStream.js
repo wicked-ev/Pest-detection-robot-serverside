@@ -2,11 +2,12 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import RobotWebSocket from '../api/websocket'
 
 /**
- * Manages stream WebSocket connection for a robot.
- * Receives binary JPEG frames and text JSON detections.
+ * Watches a robot through the server's viewer socket (/ws/view/{robotId}).
+ * Receives the robot's binary JPEG frames and text JSON detections; sends nothing,
+ * so watching never affects the robot's own connection or status.
  * Returns: { frameUrl, detections, fps, isConnected }
  */
-export function useRobotStream(robotId, modelName = 'onnx') {
+export function useRobotStream(robotId) {
   const [frameUrl, setFrameUrl] = useState(null)
   const [detections, setDetections] = useState(null)
   const [fps, setFps] = useState(0)
@@ -65,11 +66,13 @@ export function useRobotStream(robotId, modelName = 'onnx') {
 
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const host = window.location.host
-    const url = `${protocol}://${host}/ws/stream/${robotId}?model=${modelName}`
+    const url = `${protocol}://${host}/ws/view/${encodeURIComponent(robotId)}`
 
     wsRef.current = new RobotWebSocket(url, {
       onMessage: handleMessage,
       onStatusChange: handleStatusChange,
+      // Keep retrying while the page is open; the default (5) gives up after ~15 seconds.
+      maxRetries: Infinity,
     })
 
     wsRef.current.connect()
@@ -85,7 +88,7 @@ export function useRobotStream(robotId, modelName = 'onnx') {
         clearTimeout(detectionFadeTimerRef.current)
       }
     }
-  }, [robotId, modelName, handleMessage, handleStatusChange])
+  }, [robotId, handleMessage, handleStatusChange])
 
   return { frameUrl, detections, fps, isConnected }
 }

@@ -19,16 +19,6 @@ try:
 except ImportError:  # pragma: no cover
     RFDETRNano = None
 
-try:
-    import supervision as sv
-except ImportError:  # pragma: no cover
-    sv = None
-
-try:
-    import cv2
-except ImportError:  # pragma: no cover
-    cv2 = None
-
 logger = logging.getLogger("pest_robot_server.model_adapters")
 
 
@@ -352,9 +342,6 @@ class RFDETRNanoAdapter(ModelAdapter):
             raise RuntimeError("RF-DETR Nano adapter has not been loaded")
         
         try:
-            if cv2 is None:
-                raise RuntimeError("cv2 is not installed")
-            
             # Convert PIL image to RGB numpy array
             image_rgb = np.array(image.convert("RGB"))
             

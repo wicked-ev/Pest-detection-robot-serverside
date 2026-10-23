@@ -1,11 +1,12 @@
-fastapi
-uvicorn[standard]
-websockets
-sqlmodel
-onnxruntime
-rfdetr
-supervision
-opencv-python
-numpy
-Pillow
-python-multipart
+# Mirrors pyproject.toml, which is the source of truth (uv.lock pins exact versions).
+# Prefer `uv sync`; use this file only for plain `pip install -r requirements.txt`.
+fastapi>=0.136.3
+numpy>=2.4.6
+onnxruntime>=1.26.0
+pillow>=12.2.0
+python-multipart>=0.0.30
+rfdetr[plus]>=1.7.1
+sqlmodel>=0.0.38
+torch>=2.12.0
+uvicorn[standard]>=0.48.0
+websockets>=16.0

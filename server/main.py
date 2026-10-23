@@ -7,9 +7,19 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+try:
+    from dotenv import load_dotenv  # installed with uvicorn[standard]
+except ImportError:  # pragma: no cover
+    load_dotenv = None
+
+if load_dotenv is not None:
+    load_dotenv(Path(__file__).parent / ".env")
+
+from core.auth import warn_if_auth_disabled
 from core.inference_worker import InferenceWorker
 from core.model_adapters import ModelRegistry
 from core.robot_store import RobotStore
+from core.viewer_hub import ViewerHub
 from routers.control import router as control_router
 from routers.stream import router as stream_router
 
@@ -20,8 +30,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 @asynccontextmanager
 async def lifespan(app) -> AsyncGenerator[None, None]:
     # Startup
+    warn_if_auth_disabled()
     app.state.robot_store = RobotStore(db_url="sqlite:///./robot_store.db")
     app.state.command_queues = {}
+    # Active robot sockets, so a stale socket closing never marks a reconnected robot offline.
+    app.state.control_connections = {}
+    app.state.stream_connections = {}
+    app.state.viewer_hub = ViewerHub()
 
     model_root = Path(__file__).parent / "models"
     app.state.model_registry = ModelRegistry(model_root)
@@ -39,7 +54,12 @@ async def lifespan(app) -> AsyncGenerator[None, None]:
         default_model_name = next((m["name"] for m in models if "rfdtr" in m.get("architecture", "").lower()), None)
     if not default_model_name:
         default_model_name = "onnx" if any(m["name"] == "onnx" for m in models) else models[0]["name"]
-    app.state.inference_worker = InferenceWorker(app.state.model_registry, app.state.robot_store, default_model_name=default_model_name)
+    app.state.inference_worker = InferenceWorker(
+        app.state.model_registry,
+        app.state.robot_store,
+        app.state.viewer_hub,
+        default_model_name=default_model_name,
+    )
     await app.state.inference_worker.start()
 
     # Preload the default model in the background so startup stays fast

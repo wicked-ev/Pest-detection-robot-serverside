@@ -8,6 +8,7 @@ from PIL import Image
 
 from .model_adapters import ModelRegistry
 from .robot_store import RobotStore
+from .viewer_hub import ViewerHub
 
 logger = logging.getLogger("pest_robot_server.inference_worker")
 INFERENCE_TIMEOUT_SECONDS = 10.0
@@ -21,11 +22,13 @@ class InferenceWorker:
         self,
         model_registry: ModelRegistry,
         robot_store: RobotStore,
+        viewer_hub: ViewerHub,
         max_queue_size: int = 2,
         default_model_name: str = "onnx",
     ) -> None:
         self.model_registry = model_registry
         self.robot_store = robot_store
+        self.viewer_hub = viewer_hub
         self.max_queue_size = max_queue_size
         self.default_model_name = default_model_name
         self._pending_frames: Dict[str, Tuple[bytes, str]] = {}
@@ -50,9 +53,11 @@ class InferenceWorker:
         async with self._lock:
             self._callbacks[robot_id] = callback
 
-    async def unregister_callback(self, robot_id: str) -> None:
+    async def unregister_callback(self, robot_id: str, callback: Callable[[dict], Awaitable[None]]) -> None:
+        # Only remove our own callback: a reconnected robot may already have replaced it.
         async with self._lock:
-            self._callbacks.pop(robot_id, None)
+            if self._callbacks.get(robot_id) is callback:
+                del self._callbacks[robot_id]
 
     async def flush_queue(self, robot_id: str) -> None:
         async with self._lock:
@@ -90,6 +95,7 @@ class InferenceWorker:
                         timeout=INFERENCE_TIMEOUT_SECONDS,
                     )
                     await asyncio.to_thread(self.robot_store.set_last_detection, robot_id, result)
+                    self.viewer_hub.publish_json(robot_id, result)
                     await self._dispatch_result(robot_id, result)
                 except asyncio.TimeoutError:
                     logger.warning(
@@ -135,4 +141,11 @@ class InferenceWorker:
         if not adapter.is_loaded():
             adapter.load()
 
-        return adapter.infer(image)
+        result = adapter.infer(image)
+        # The Pi reads a "detections" list shaped like its own local model output.
+        result["detections"] = [
+            {"class": label, "confidence": score, "bbox": box}
+            for box, score, label in zip(result["boxes"], result["scores"], result["labels"])
+        ]
+        result["image_size"] = [image.width, image.height]
+        return result

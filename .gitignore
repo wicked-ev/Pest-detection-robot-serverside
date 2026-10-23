@@ -1,5 +1,19 @@
-\.venv
+# Python
+.venv/
+__pycache__/
+*.py[oc]
 
-/__pycache__
+# Local configuration and secrets
+.env
+!.env.example
 
-server/__pycache__/main.cpython-313.pyc
+# Runtime data
+server/robot_store.db
+
+# Model weights and dataset annotations are too large for git (GitHub rejects files over 100 MB).
+# See server/models/README.md for where to get them.
+server/models/*.pt
+server/models/*.pth
+server/models/*.onnx
+server/models/*.tflite
+server/models/*_annotations.coco.json

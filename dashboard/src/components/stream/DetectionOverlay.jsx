@@ -17,8 +17,10 @@ export function DetectionOverlay({ detections, imageWidth, imageHeight }) {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const scaleX = containerWidth / imageWidth
-    const scaleY = containerHeight / imageHeight
+    // The frame is drawn with object-contain, so match its uniform scale and letterbox offset.
+    const scale = Math.min(containerWidth / imageWidth, containerHeight / imageHeight)
+    const offsetX = (containerWidth - imageWidth * scale) / 2
+    const offsetY = (containerHeight - imageHeight * scale) / 2
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
@@ -31,10 +33,10 @@ export function DetectionOverlay({ detections, imageWidth, imageHeight }) {
       const score = scores[idx] || 0
       const label = labels[idx] || 'unknown'
 
-      const drawX1 = x1 * scaleX
-      const drawY1 = y1 * scaleY
-      const drawX2 = x2 * scaleX
-      const drawY2 = y2 * scaleY
+      const drawX1 = offsetX + x1 * scale
+      const drawY1 = offsetY + y1 * scale
+      const drawX2 = offsetX + x2 * scale
+      const drawY2 = offsetY + y2 * scale
       const drawWidth = drawX2 - drawX1
       const drawHeight = drawY2 - drawY1
 

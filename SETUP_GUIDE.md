@@ -27,8 +27,7 @@ dashboard/
     │
     ├── hooks/
     │   ├── useRobots.js        # Poll /api/robots every 5s
-    │   ├── useRobotStream.js   # Stream WebSocket + detection rendering
-    │   └── useControlSocket.js # Control WebSocket + heartbeat
+    │   └── useRobotStream.js   # Viewer WebSocket: live frames + detections
     │
     ├── components/
     │   ├── layout/
@@ -45,8 +44,7 @@ dashboard/
     │   │   └── DetectionOverlay.jsx # Canvas with bounding boxes
     │   │
     │   ├── controls/
-    │   │   ├── CommandPanel.jsx    # Command buttons + WiFi provisioning
-    │   │   └── WifiModal.jsx       # SSID + password form
+    │   │   └── CommandPanel.jsx    # Stop motors / Reboot / Shutdown
     │   │
     │   └── charts/
     │       └── DetectionChart.jsx  # Recharts area chart (last 60)
@@ -73,9 +71,8 @@ npm run dev
 
 The dashboard will be available at `http://localhost:5173`.
 
-**The dev server automatically proxies:**
-- `/api/*` → `http://localhost:8000/api/*`
-- `/ws/*` → `ws://localhost:8000/ws/*`
+**The dev server automatically proxies** `/api/*`, `/health` and `/ws/*` to the FastAPI server
+(`http://127.0.0.1:8000` unless `VITE_SERVER_URL` is set in `dashboard/.env.local`).
 
 ### 3. Ensure FastAPI Server is Running
 
@@ -83,15 +80,17 @@ On another terminal:
 
 ```bash
 cd server
-pip install -r requirements.txt
-# Place your ONNX/TFLite models in server/models/
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv sync                      # or: pip install -r requirements.txt
+cp .env.example .env         # set ROBOT_KEY, the same value as on the Pi
+# Place pest_model.pt and _annotations.coco.json in server/models/ (see server/models/README.md)
+.venv/Scripts/python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 ## Key Features Implemented
 
 ### 1. **Real-time Video Streaming**
-   - StreamView component connects to `/ws/stream/{robot_id}`
+   - The robot detail page opens one viewer socket, `/ws/view/{robot_id}`
+   - The dashboard only watches: it never uses the robot's own `/ws/stream` or `/ws/control` sockets
    - Receives binary JPEG frames
    - Renders on `<img>` tag with live FPS counter
    - Detection JSON triggers overlay rendering
@@ -103,15 +102,15 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
    - Automatic cleanup on unmount
 
 ### 3. **Multi-model Support**
-   - Stream endpoint accepts `?model=` query param
+   - The robot picks the model with `?model=` on its stream socket (unknown names use the default, with one warning)
    - Falls back to first discovered model if not found
    - Model list exposed in REST API (`GET /api/models`)
 
 ### 4. **Robot Command Panel**
-   - Start/Stop Stream
-   - Reboot
-   - Stop
-   - WiFi Provisioning (provisioning mode only)
+   - Start/Stop Stream (on the stream view)
+   - Stop Motors (`halt`; the robot stays on)
+   - Reboot and Shutdown (both ask for confirmation)
+   - Wi-Fi is set up on the robot's own hotspot, not from the dashboard
 
 ### 5. **Detection Analytics**
    - Real-time confidence score chart (last 60 points)
@@ -139,34 +138,35 @@ GET /api/models/{model_name}
 // Commands
 POST /api/robots/register { robot_id, name, ip_address }
 POST /api/robots/{robot_id}/command { command }
-POST /api/robots/{robot_id}/wifi { ssid, password }
 ```
 
 ### WebSocket Endpoints
 
 ```javascript
-// Control: Commands + Heartbeat
+// Robot only (header X-Robot-Key must match the server's ROBOT_KEY)
 WS /ws/control/{robot_id}
   → Server sends: { "command": "..." }
-  → Pi sends: { "type": "heartbeat", "status": "ok" }
-
-// Stream: JPEG + Detections
+  → Pi sends: { "type": "heartbeat", "state": "..." }
 WS /ws/stream/{robot_id}?model={model_name}
   → Pi sends: [binary JPEG frames]
-  → Server sends: { "boxes": [...], "scores": [...], "labels": [...] }
+  → Server sends: { "boxes", "scores", "labels", "detections", "image_size" }
+
+// Dashboard only
+WS /ws/view/{robot_id}
+  → Server sends: [binary JPEG frames from the robot] and the same detection JSON
 ```
 
 ## Configuration
 
 ### Environment Variables
 
-Create `.env.local`:
+Copy `.env.example` to `.env.local` and set where the FastAPI server runs:
 
 ```
-REACT_APP_API_URL=http://your-api-server:8000
+VITE_SERVER_URL=http://192.168.1.8:8000
 ```
 
-Default: `http://localhost:8000`
+Default: `http://127.0.0.1:8000` (not `localhost`: Node may resolve it to IPv6 `::1`, which uvicorn does not listen on). Vite only exposes variables prefixed with `VITE_`.
 
 ### TailwindCSS Custom Colors
 

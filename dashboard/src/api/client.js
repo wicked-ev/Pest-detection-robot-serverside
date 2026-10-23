@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://192.168.1.8:8000";
+// Empty by default: requests stay same-origin and the Vite dev proxy forwards them to the server.
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 export class APIClient {
   static async request(endpoint, options = {}) {
@@ -61,10 +62,6 @@ export class APIClient {
 
   static async sendCommand(robotId, command) {
     return this.post(`/api/robots/${robotId}/command`, { command });
-  }
-
-  static async sendWifiCredentials(robotId, ssid, password) {
-    return this.post(`/api/robots/${robotId}/wifi`, { ssid, password });
   }
 
   static async getModels() {

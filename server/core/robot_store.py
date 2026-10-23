@@ -41,16 +41,32 @@ class RobotStore:
         with self._lock, Session(self._engine) as session:
             record = session.get(RobotRecord, robot_id)
             if record is None:
-                record = RobotRecord(robot_id=robot_id, name=name)
+                # Only new records start offline; re-registering must not hide a connected robot.
+                record = RobotRecord(robot_id=robot_id, name=name, status="offline", last_seen=now)
             record.name = name
             record.ip_address = ip_address
-            record.status = "offline"
-            record.last_seen = now
             session.add(record)
             session.commit()
             session.refresh(record)
             self._robots[robot_id] = record
         logger.info("Registered robot %s (%s).", robot_id, ip_address)
+        return record
+
+    def ensure_robot(self, robot_id: str, ip_address: Optional[str] = None) -> RobotRecord:
+        """Create a record for a robot that connected before anyone added it in the dashboard."""
+        with self._lock:
+            existing = self._robots.get(robot_id)
+        if existing is not None:
+            return existing
+        with self._lock, Session(self._engine) as session:
+            record = session.get(RobotRecord, robot_id)
+            if record is None:
+                record = RobotRecord(robot_id=robot_id, name=robot_id, ip_address=ip_address)
+                session.add(record)
+                session.commit()
+                session.refresh(record)
+                logger.info("Auto-registered robot %s (%s).", robot_id, ip_address)
+            self._robots[robot_id] = record
         return record
 
     def update_status(

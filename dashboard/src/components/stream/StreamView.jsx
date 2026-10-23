@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Play, Square } from 'lucide-react'
-import useRobotStream from '../../hooks/useRobotStream'
 import DetectionOverlay from './DetectionOverlay'
 import APIClient from '../../api/client'
 import { useRobotsContext } from '../../context/RobotsContext'
 
-export function StreamView({ robotId, modelName = 'onnx' }) {
-  const { frameUrl, detections, fps, isConnected } = useRobotStream(robotId, modelName)
-  const [isStreaming, setIsStreaming] = useState(false)
+export function StreamView({ robotId, stream, isOnline, isStreaming }) {
+  const { frameUrl, detections, fps } = stream
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState(null)
   const imgRef = useRef(null)
   const [imgDimensions, setImgDimensions] = useState({ width: 640, height: 640 })
   const { refreshRobots } = useRobotsContext()
@@ -16,10 +15,11 @@ export function StreamView({ robotId, modelName = 'onnx' }) {
   const handleStartStream = async () => {
     try {
       setIsLoading(true)
+      setError(null)
       await APIClient.sendCommand(robotId, 'start_stream')
       await refreshRobots?.()
-      setIsStreaming(true)
     } catch (err) {
+      setError(err.message)
       console.error('Failed to start stream:', err)
     } finally {
       setIsLoading(false)
@@ -29,32 +29,23 @@ export function StreamView({ robotId, modelName = 'onnx' }) {
   const handleStopStream = async () => {
     try {
       setIsLoading(true)
+      setError(null)
       await APIClient.sendCommand(robotId, 'stop_stream')
       await refreshRobots?.()
-      setIsStreaming(false)
     } catch (err) {
+      setError(err.message)
       console.error('Failed to stop stream:', err)
     } finally {
       setIsLoading(false)
     }
   }
 
-  useEffect(() => {
-    const handleImageLoad = () => {
-      if (imgRef.current) {
-        setImgDimensions({
-          width: imgRef.current.naturalWidth,
-          height: imgRef.current.naturalHeight,
-        })
-      }
-    }
-
+  const handleImageLoad = () => {
     const img = imgRef.current
-    if (img) {
-      img.addEventListener('load', handleImageLoad)
-      return () => img.removeEventListener('load', handleImageLoad)
+    if (img && (img.naturalWidth !== imgDimensions.width || img.naturalHeight !== imgDimensions.height)) {
+      setImgDimensions({ width: img.naturalWidth, height: img.naturalHeight })
     }
-  }, [])
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -64,6 +55,7 @@ export function StreamView({ robotId, modelName = 'onnx' }) {
             <img
               ref={imgRef}
               src={frameUrl}
+              onLoad={handleImageLoad}
               alt="Robot stream"
               className="w-full h-full object-contain"
             />
@@ -90,7 +82,7 @@ export function StreamView({ robotId, modelName = 'onnx' }) {
         {!isStreaming ? (
           <button
             onClick={handleStartStream}
-            disabled={isLoading}
+            disabled={isLoading || !isOnline}
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-accent text-background font-medium rounded-button hover:opacity-90 disabled:opacity-50 transition"
           >
             <Play size={18} />
@@ -99,7 +91,7 @@ export function StreamView({ robotId, modelName = 'onnx' }) {
         ) : (
           <button
             onClick={handleStopStream}
-            disabled={isLoading}
+            disabled={isLoading || !isOnline}
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-danger text-background font-medium rounded-button hover:opacity-90 disabled:opacity-50 transition"
           >
             <Square size={18} />
@@ -107,6 +99,7 @@ export function StreamView({ robotId, modelName = 'onnx' }) {
           </button>
         )}
       </div>
+      {error && <p className="text-sm text-danger">{error}</p>}
     </div>
   )
 }

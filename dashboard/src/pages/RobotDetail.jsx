@@ -8,7 +8,8 @@ import useRobotStream from '../hooks/useRobotStream'
 export function RobotDetail({ robotId }) {
   const { robots } = useRobotsContext()
   const robot = robots[robotId]
-  const { detections } = useRobotStream(robotId)
+  // One viewer socket per page, shared by the stream view and the chart.
+  const stream = useRobotStream(robotId)
 
   if (!robot) {
     return <div>Robot not found</div>
@@ -17,7 +18,7 @@ export function RobotDetail({ robotId }) {
   const lastDetectionText = robot.last_detection
     ? (() => {
         const detection = JSON.parse(robot.last_detection)
-        return `${detection.labels?.join(', ') || 'Unknown'}`
+        return detection.labels?.length ? detection.labels.join(', ') : 'Nothing detected'
       })()
     : 'None'
 
@@ -29,7 +30,12 @@ export function RobotDetail({ robotId }) {
     <div className="flex-1 flex gap-6 p-6 overflow-hidden">
       {/* Left column: Stream */}
       <div className="flex-1 overflow-y-auto min-w-0">
-        <StreamView robotId={robotId} />
+        <StreamView
+          robotId={robotId}
+          stream={stream}
+          isOnline={robot.status === 'online'}
+          isStreaming={robot.streaming}
+        />
       </div>
 
       {/* Right column: Info and Controls */}
@@ -74,7 +80,7 @@ export function RobotDetail({ robotId }) {
 
         {/* Detection Chart */}
         <div className="bg-surface border border-border rounded-card p-4">
-          <DetectionChart robotId={robotId} detections={detections} />
+          <DetectionChart robotId={robotId} detections={stream.detections} />
         </div>
       </div>
     </div>
