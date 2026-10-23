@@ -328,10 +328,20 @@ class RFDETRNanoAdapter(ModelAdapter):
             raise RuntimeError("rfdetr is not installed")
         
         try:
-            self._model = RFDETRNano()
+            # Use the training resolution stored in the checkpoint; the Nano default (384) differs.
+            import torch
+
+            checkpoint = torch.load(self.model_path, map_location="cpu", weights_only=False)
+            resolution = getattr(checkpoint.get("args"), "resolution", None)
+            del checkpoint
+
+            kwargs = {"pretrain_weights": str(self.model_path)}
+            if resolution:
+                kwargs["resolution"] = int(resolution)
+            self._model = RFDETRNano(**kwargs)
             self._model.optimize_for_inference()
             self._loaded = True
-            logger.info("Loaded RF-DETR Nano model")
+            logger.info("Loaded RF-DETR Nano model from %s (resolution=%s)", self.model_path, resolution)
         except Exception as e:
             logger.error("Failed to load RF-DETR Nano model: %s", e)
             raise
