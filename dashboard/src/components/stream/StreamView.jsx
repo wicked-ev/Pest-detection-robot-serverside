@@ -1,11 +1,20 @@
-import { useState } from 'react'
-import { Play, Square, VideoOff } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Droplets, Play, Square, VideoOff } from 'lucide-react'
 import APIClient from '../../api/client'
 import { useRobotsContext } from '../../context/RobotsContext'
 import BoxOverlay from '../common/BoxOverlay'
 
 export function StreamView({ robotId, stream, isOnline, isStreaming }) {
-  const { frameUrl, detections, fps } = stream
+  const { frameUrl, detections, fps, lastSpray } = stream
+  const [sprayBanner, setSprayBanner] = useState(null)
+
+  // Flash a banner on the video for a few seconds after each spray.
+  useEffect(() => {
+    if (!lastSpray) return
+    setSprayBanner(lastSpray)
+    const timer = setTimeout(() => setSprayBanner(null), 4000)
+    return () => clearTimeout(timer)
+  }, [lastSpray])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
   const [frameSize, setFrameSize] = useState(null)
@@ -50,6 +59,12 @@ export function StreamView({ robotId, stream, isOnline, isStreaming }) {
             <span className="absolute top-3 right-3 bg-background/80 px-2 py-1 rounded-button text-xs font-medium">
               {fps} FPS
             </span>
+            {sprayBanner && (
+              <span className="absolute top-3 left-3 flex items-center gap-1.5 bg-accent text-background px-2 py-1 rounded-button text-xs font-medium">
+                <Droplets size={14} />
+                Sprayed{sprayBanner.label ? ` ${sprayBanner.label}` : ''} ({sprayBanner.trigger})
+              </span>
+            )}
           </>
         ) : (
           <div className="aspect-video flex flex-col items-center justify-center gap-2 text-text-secondary">

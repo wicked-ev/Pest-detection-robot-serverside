@@ -17,6 +17,7 @@ export function SightingModal({ sighting, robotName, onClose }) {
     ['Duration', formatDuration(sighting.first_seen, sighting.last_seen)],
     ['Best confidence', `${Math.round(sighting.best_confidence * 100)}%`],
     ['Frames', sighting.frames],
+    ['Sprayed', sighting.sprays ? `${sighting.sprays} time(s)` : 'No'],
   ]
 
   return (

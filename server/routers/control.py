@@ -1,9 +1,9 @@
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core.auth import authorize_robot
 from core.model_adapters import ModelRegistry
@@ -12,8 +12,12 @@ from core.robot_store import RobotStore, utc_now
 logger = logging.getLogger("pest_robot_server.control")
 router = APIRouter()
 
-# "halt" stops the motors; "shutdown" powers the robot off (the Pi treats "stop" as shutdown too).
-VALID_COMMANDS = {"start_stream", "stop_stream", "halt", "reboot", "shutdown"}
+# "halt" stops wheels and sprayer; "shutdown" stops the robot program (the Pi treats "stop" as shutdown too).
+# "move" is hold-to-drive: the dashboard repeats it while a key is held and the robot stops
+# by itself when the repeats stop.
+VALID_COMMANDS = {"start_stream", "stop_stream", "halt", "reboot", "shutdown", "move", "spray", "set_auto_spray"}
+# Fields the robot reports about itself (heartbeat and "live" messages).
+LIVE_FIELDS = ("state", "motors", "auto_spray", "spraying", "driving")
 HEARTBEAT_TIMEOUT_SECONDS = 40.0
 
 
@@ -25,10 +29,16 @@ class RegisterRobotPayload(BaseModel):
 
 class RobotCommandPayload(BaseModel):
     command: str
+    direction: Optional[Literal["forward", "backward", "left", "right", "stop"]] = None  # move
+    speed: Optional[int] = Field(None, ge=10, le=100)  # move: percent of full speed
+    duration: Optional[float] = Field(None, gt=0, le=5)  # spray: seconds
+    enabled: Optional[bool] = None  # set_auto_spray
 
 
 def robot_json(robot: Any, request: Request) -> Dict[str, Any]:
     data = robot.model_dump()
+    # Live status the robot last reported (None while it is not connected).
+    data["live"] = request.app.state.robot_live.get(robot.robot_id)
     # Where detection runs while the robot streams: "robot" (monitor mode), "server", or None.
     mode = request.app.state.stream_modes.get(robot.robot_id)
     data["detection_mode"] = {"monitor": "robot", "server": "server"}.get(mode)
@@ -139,12 +149,19 @@ async def send_command(robot_id: str, payload: RobotCommandPayload, request: Req
         raise HTTPException(status_code=404, detail="Robot not found")
     if payload.command not in VALID_COMMANDS:
         raise HTTPException(status_code=400, detail="Invalid command")
+    if payload.command == "move" and payload.direction is None:
+        raise HTTPException(status_code=400, detail="move needs a direction")
+    if payload.command == "set_auto_spray" and payload.enabled is None:
+        raise HTTPException(status_code=400, detail="set_auto_spray needs enabled: true or false")
     # Refuse rather than queue: a command left waiting would run whenever the robot next connects.
     if robot_id not in request.app.state.control_connections:
         raise HTTPException(status_code=409, detail="Robot is not connected")
     queue = get_command_queues(request).setdefault(robot_id, asyncio.Queue())
-    await queue.put({"command": payload.command})
-    logger.info("Queued command %s for robot %s", payload.command, robot_id)
+    message = payload.model_dump(exclude_none=True)
+    await queue.put(message)
+    # Drive commands arrive several times a second; keep them out of the normal log.
+    log = logger.debug if payload.command == "move" else logger.info
+    log("Queued command %s for robot %s", message, robot_id)
     return {"status": "queued", "robot_id": robot_id, "command": payload.command}
 
 
@@ -208,7 +225,10 @@ async def control_ws(robot_id: str, websocket: WebSocket) -> None:
                 )
                 await websocket.close(code=1001)
                 break
-            if isinstance(message, dict) and message.get("type") == "heartbeat":
+            message_type = message.get("type") if isinstance(message, dict) else None
+            if message_type in ("heartbeat", "live"):
+                _update_live(websocket.app.state, robot_id, message)
+            if message_type == "heartbeat":
                 # The Pi reports its state machine value as "state".
                 status_text = message.get("state") or message.get("status", "ok")
                 await asyncio.to_thread(
@@ -219,7 +239,9 @@ async def control_ws(robot_id: str, websocket: WebSocket) -> None:
                     ip_address=client_ip,
                 )
                 logger.debug("Received heartbeat from %s: %s", robot_id, status_text)
-            else:
+            elif message_type == "spray":
+                await _record_spray(websocket.app.state, robot_id, message)
+            elif message_type != "live":
                 logger.debug("Received control message from %s: %s", robot_id, message)
     except WebSocketDisconnect:
         logger.info("Control socket disconnected for %s", robot_id)
@@ -230,7 +252,32 @@ async def control_ws(robot_id: str, websocket: WebSocket) -> None:
         # Skip if a newer connection for this robot has already taken over.
         if connections.get(robot_id) is websocket:
             del connections[robot_id]
+            websocket.app.state.robot_live.pop(robot_id, None)
             # Shielded so the write completes even if this handler is cancelled (server shutdown).
             await asyncio.shield(
                 asyncio.to_thread(store.update_status, robot_id, status="offline", last_seen=utc_now())
             )
+
+
+def _update_live(state, robot_id: str, message: Dict[str, Any]) -> None:
+    live = state.robot_live.setdefault(robot_id, {})
+    for field in LIVE_FIELDS:
+        if field in message:
+            live[field] = message[field]
+
+
+async def _record_spray(state, robot_id: str, message: Dict[str, Any]) -> None:
+    """Store a spray the robot reports and show it to anyone watching the robot."""
+    try:
+        duration = max(0.0, min(float(message.get("duration", 0.0)), 10.0))
+        confidence = message.get("confidence")
+        confidence = float(confidence) if confidence is not None else None
+    except (TypeError, ValueError):
+        logger.warning("Ignoring malformed spray report from %s: %s", robot_id, message)
+        return
+    trigger = "auto" if message.get("trigger") == "auto" else "manual"
+    label = str(message["label"])[:100] if message.get("label") else None
+    record = await asyncio.to_thread(
+        state.sightings.record_spray, robot_id, trigger, duration, label, confidence
+    )
+    state.viewer_hub.publish_json(robot_id, {"type": "spray", **record.model_dump(mode="json")})

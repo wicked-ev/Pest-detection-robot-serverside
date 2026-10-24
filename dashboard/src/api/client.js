@@ -78,8 +78,13 @@ export class APIClient {
     return this.get(`/api/sightings/summary${queryString(filters)}`);
   }
 
-  static async sendCommand(robotId, command) {
-    return this.post(`/api/robots/${robotId}/command`, { command });
+  // extra: e.g. { direction, speed } for "move", { duration } for "spray", { enabled } for "set_auto_spray"
+  static async sendCommand(robotId, command, extra = {}) {
+    return this.post(`/api/robots/${robotId}/command`, { command, ...extra });
+  }
+
+  static async getSprays(filters = {}) {
+    return this.get(`/api/sprays${queryString(filters)}`);
   }
 
   static async getModels() {

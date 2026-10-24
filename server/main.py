@@ -53,6 +53,8 @@ def create_app(
         app.state.stream_connections = {}
         # Per streaming robot: "server" (server detects) or "monitor" (robot detects).
         app.state.stream_modes = {}
+        # Per connected robot: live status from its heartbeats (motors, auto_spray, spraying...).
+        app.state.robot_live = {}
         app.state.viewer_hub = ViewerHub()
         app.state.sightings = SightingStore(db_url, snapshot_dir=data_dir / "snapshots")
 

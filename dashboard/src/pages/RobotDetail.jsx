@@ -5,6 +5,8 @@ import { useRobotsContext } from '../context/RobotsContext'
 import useRobotStream from '../hooks/useRobotStream'
 import StreamView from '../components/stream/StreamView'
 import CommandPanel from '../components/controls/CommandPanel'
+import DrivePanel from '../components/controls/DrivePanel'
+import SprayPanel from '../components/controls/SprayPanel'
 import RecentSightings from '../components/history/RecentSightings'
 import RobotStatusBadge from '../components/robots/RobotStatusBadge'
 import Panel from '../components/common/Panel'
@@ -68,7 +70,9 @@ export function RobotDetail({ robotId }) {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem] items-start">
         <StreamView robotId={robotId} stream={stream} isOnline={isOnline} isStreaming={robot.streaming} />
         <div className="space-y-4">
-          <Panel title="Controls">
+          <DrivePanel robotId={robotId} isOnline={isOnline} live={robot.live} />
+          <SprayPanel robotId={robotId} isOnline={isOnline} live={robot.live} lastSpray={stream.lastSpray} />
+          <Panel title="Robot">
             <CommandPanel robotId={robotId} robotStatus={robot.status} />
           </Panel>
           <RecentSightings robotId={robotId} robotName={robot.name} />

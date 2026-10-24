@@ -14,7 +14,14 @@ export function SightingCard({ sighting, robotName, onOpen, compact = false }) {
           <p className="font-medium truncate" title={sighting.label}>
             {sighting.label}
           </p>
-          <span className={`text-xs shrink-0 ${confidence > 70 ? 'text-accent' : 'text-warning'}`}>{confidence}%</span>
+          <span className="flex items-center gap-2 shrink-0 text-xs">
+            {sighting.sprays > 0 && (
+              <span className="text-accent" title={`Sprayed ${sighting.sprays} time(s)`}>
+                💧{sighting.sprays > 1 ? `×${sighting.sprays}` : ''}
+              </span>
+            )}
+            <span className={confidence > 70 ? 'text-accent' : 'text-warning'}>{confidence}%</span>
+          </span>
         </div>
         <p className="text-xs text-text-secondary truncate">
           {formatRelative(sighting.first_seen)}

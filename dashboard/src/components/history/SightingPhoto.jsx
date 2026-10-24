@@ -13,9 +13,9 @@ export function SightingPhoto({ sighting, showLabels = false, className = '' }) 
   const boxes = sighting.boxes || []
   return (
     <div className={`relative bg-background ${className}`}>
-      {/* last_seen changes when a better photo replaces the old one, so it busts the browser cache. */}
+      {/* snapshot_url names the photo version these boxes belong to. */}
       <img
-        src={`${sighting.snapshot_url}?v=${encodeURIComponent(sighting.last_seen)}`}
+        src={sighting.snapshot_url}
         alt={`${sighting.label} sighting`}
         loading="lazy"
         className="block w-full h-auto"

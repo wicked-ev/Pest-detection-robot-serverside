@@ -3,13 +3,15 @@ import RobotWebSocket from '../api/websocket'
 
 /**
  * Watches a robot through the server's viewer socket (/ws/view/{robotId}).
- * Receives the robot's binary JPEG frames and text JSON detections; sends nothing,
- * so watching never affects the robot's own connection or status.
- * Returns: { frameUrl, detections, fps, isConnected }
+ * Receives the robot's binary JPEG frames, JSON detections and spray events; sends
+ * nothing, so watching never affects the robot's own connection or status.
+ * Returns: { frameUrl, detections, fps, isConnected, lastSpray }
  */
 export function useRobotStream(robotId) {
   const [frameUrl, setFrameUrl] = useState(null)
   const [detections, setDetections] = useState(null)
+  // The most recent spray reported while watching ({ type: "spray", label, trigger, time, ... }).
+  const [lastSpray, setLastSpray] = useState(null)
   const [fps, setFps] = useState(0)
   const [isConnected, setIsConnected] = useState(false)
 
@@ -22,6 +24,10 @@ export function useRobotStream(robotId) {
     if (typeof event.data === 'string') {
       try {
         const detection = JSON.parse(event.data)
+        if (detection.type === 'spray') {
+          setLastSpray(detection)
+          return
+        }
         setDetections(detection)
 
         if (detectionFadeTimerRef.current) {
@@ -90,7 +96,7 @@ export function useRobotStream(robotId) {
     }
   }, [robotId, handleMessage, handleStatusChange])
 
-  return { frameUrl, detections, fps, isConnected }
+  return { frameUrl, detections, fps, isConnected, lastSpray }
 }
 
 export default useRobotStream

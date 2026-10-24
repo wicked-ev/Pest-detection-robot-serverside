@@ -58,7 +58,7 @@ def test_first_detection_creates_a_sighting_with_photo(store):
     [sighting] = store.list()
     assert (sighting.robot_id, sighting.label, sighting.frames) == ("r1", "whitefly", 1)
     assert sighting.first_seen == START
-    assert store.snapshot_path(sighting.id).read_bytes() == b"frame-1"
+    assert store.snapshot_path(sighting.id, sighting.photo_version).read_bytes() == b"frame-1"
 
 
 def test_empty_results_create_nothing(store):
@@ -110,7 +110,7 @@ def test_photo_is_replaced_by_a_more_confident_frame(store, clock):
     store.flush()
     [sighting] = store.list()
     assert sighting.best_confidence == pytest.approx(0.95)
-    assert store.snapshot_path(sighting.id).read_bytes() == b"sharp"
+    assert store.snapshot_path(sighting.id, sighting.photo_version).read_bytes() == b"sharp"
 
 
 # --- Few disk writes ----------------------------------------------------------------
@@ -226,3 +226,57 @@ def test_connected_robot_cannot_be_deleted(client):
 
 def test_deleting_an_unknown_robot_is_404(client):
     assert client.delete("/api/robots/nope").status_code == 404
+
+
+# --- Photo versions ---------------------------------------------------------------------
+
+
+def test_a_better_photo_gets_a_new_version_and_the_previous_one_is_kept(store, clock):
+    store.record("r1", result(("whitefly", 0.6)), photo("v1"))
+    clock.advance(6)
+    store.record("r1", result(("whitefly", 0.8)), photo("v2"))
+    [sighting] = store.list()
+    assert sighting.photo_version == 2
+    assert store.snapshot_path(sighting.id, 1).read_bytes() == b"v1"  # still there for old readers
+    clock.advance(6)
+    store.record("r1", result(("whitefly", 0.9)), photo("v3"))
+    assert not store.snapshot_path(sighting.id, 1).exists()  # only the previous one is kept
+    assert store.snapshot_path(sighting.id, 2).read_bytes() == b"v2"
+
+
+def test_old_databases_get_the_photo_version_column(tmp_path):
+    from sqlalchemy import create_engine, text
+
+    db = tmp_path / "old.db"
+    engine = create_engine(f"sqlite:///{db}")
+    with engine.begin() as connection:  # the sighting table as the previous version created it
+        connection.execute(text(
+            "CREATE TABLE sighting (id INTEGER PRIMARY KEY, robot_id VARCHAR, label VARCHAR, first_seen DATETIME, "
+            "last_seen DATETIME, best_confidence FLOAT, frames INTEGER, boxes VARCHAR, image_width INTEGER, "
+            "image_height INTEGER, has_snapshot BOOLEAN)"
+        ))
+        connection.execute(text(
+            "INSERT INTO sighting VALUES (1, 'r1', 'whitefly', '2026-06-01 08:00:00.000000', "
+            "'2026-06-01 08:00:05.000000', 0.9, 3, '[]', 320, 240, 1)"
+        ))
+    engine.dispose()
+    upgraded = SightingStore(f"sqlite:///{db}", tmp_path / "snapshots")
+    [old] = upgraded.list()
+    assert old.photo_version == 0  # served from the old unversioned file name
+    assert upgraded.snapshot_path(old.id, old.photo_version).name == "1.jpg"
+    upgraded.close()
+
+
+def test_api_serves_the_requested_photo_version(client):
+    store = client.app.state.sightings
+    with client.websocket_connect("/ws/stream/robot-1?model=fake", headers=KEY_HEADERS) as stream:
+        stream.send_bytes(make_jpeg())
+        stream.receive_json()
+    assert wait_until(lambda: client.get("/api/sightings").json() != [])
+    [sighting] = client.get("/api/sightings").json()
+    assert sighting["snapshot_url"].endswith("?v=1")
+    pinned = client.get(sighting["snapshot_url"])
+    assert pinned.status_code == 200 and "immutable" in pinned.headers["cache-control"]
+    # An unknown/expired version falls back to the current photo.
+    assert client.get(f"/api/sightings/{sighting['id']}/snapshot?v=99").status_code == 200
+    assert store.snapshot_path(sighting["id"], 1).exists()

@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, inspect, text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from .robot_store import UTCDateTime, utc_now
@@ -42,6 +42,24 @@ class SightingRecord(SQLModel, table=True):
     image_width: Optional[int] = None
     image_height: Optional[int] = None
     has_snapshot: bool = False
+    # Bumped each time a better photo replaces the old one. Photos are stored per version,
+    # so details fetched just before a replacement still get the photo their boxes belong to.
+    photo_version: int = 0
+
+
+class SprayRecord(SQLModel, table=True):
+    """One spray burst reported by a robot (manual or automatic)."""
+
+    __tablename__ = "spray"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    robot_id: str = Field(index=True)
+    # Server time when the report arrived; the robot's clock may be unset without internet.
+    time: datetime = Field(sa_type=UTCDateTime, index=True)
+    trigger: str = "manual"  # "auto" or "manual"
+    label: Optional[str] = None
+    confidence: Optional[float] = None
+    duration: float = 0.0
 
 
 @dataclass
@@ -55,6 +73,7 @@ class _ActiveSighting:
     image_size: Optional[List[int]]
     pending_photo: Optional[bytes] = None
     dirty: bool = False
+    photo_version: int = 1
 
 
 @dataclass
@@ -73,7 +92,8 @@ class SightingStore:
         persist_interval: timedelta = PERSIST_INTERVAL,
     ) -> None:
         self._engine = create_engine(db_url, echo=False, connect_args={"check_same_thread": False})
-        SQLModel.metadata.create_all(self._engine, tables=[SightingRecord.__table__])
+        SQLModel.metadata.create_all(self._engine, tables=[SightingRecord.__table__, SprayRecord.__table__])
+        self._add_missing_columns()
         self.snapshot_dir = snapshot_dir
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         self._clock = clock
@@ -81,6 +101,14 @@ class SightingStore:
         self._persist_interval = persist_interval
         self._active: Dict[Tuple[str, str], _ActiveSighting] = {}
         self._lock = threading.RLock()
+
+    def _add_missing_columns(self) -> None:
+        """Upgrade a database created by an older version (create_all does not add columns)."""
+        existing = {column["name"] for column in inspect(self._engine).get_columns("sighting")}
+        if "photo_version" not in existing:
+            with self._engine.begin() as connection:
+                connection.execute(text("ALTER TABLE sighting ADD COLUMN photo_version INTEGER NOT NULL DEFAULT 0"))
+            logger.info("Upgraded the sighting table (added photo_version)")
 
     # --- recording ---------------------------------------------------------------
 
@@ -158,10 +186,11 @@ class SightingStore:
             session.add(record)
             session.commit()
             session.refresh(record)
-        self._write_photo(record.id, jpeg_bytes)
+        self._write_photo(record.id, 1, jpeg_bytes)
         with Session(self._engine) as session:
             stored = session.get(SightingRecord, record.id)
             stored.has_snapshot = True
+            stored.photo_version = 1
             session.add(stored)
             session.commit()
         self._active[key] = _ActiveSighting(
@@ -181,8 +210,10 @@ class SightingStore:
             self._persist(active, self._clock())
 
     def _persist(self, active: _ActiveSighting, now: datetime) -> None:
+        new_version = None
         if active.pending_photo is not None:
-            self._write_photo(active.id, active.pending_photo)
+            new_version = active.photo_version + 1
+            self._write_photo(active.id, new_version, active.pending_photo)
             active.pending_photo = None
         with Session(self._engine) as session:
             record = session.get(SightingRecord, active.id)
@@ -194,22 +225,30 @@ class SightingStore:
             record.boxes = json.dumps(active.boxes)
             if active.image_size:
                 record.image_width, record.image_height = active.image_size
+            if new_version is not None:
+                record.photo_version = new_version
             session.add(record)
             session.commit()
+        if new_version is not None:
+            # Keep the previous photo for anyone who read the old details a moment ago.
+            self.snapshot_path(active.id, new_version - 2).unlink(missing_ok=True)
+            active.photo_version = new_version
         active.dirty = False
         active.last_persist = now
 
-    def _write_photo(self, sighting_id: int, jpeg_bytes: bytes) -> None:
+    def _write_photo(self, sighting_id: int, version: int, jpeg_bytes: bytes) -> None:
         # Write to a temporary name first so a reader never sees a half-written photo.
-        path = self.snapshot_path(sighting_id)
+        path = self.snapshot_path(sighting_id, version)
         temporary = path.with_suffix(".tmp")
         temporary.write_bytes(jpeg_bytes)
         os.replace(temporary, path)
 
     # --- reading -------------------------------------------------------------------
 
-    def snapshot_path(self, sighting_id: int) -> Path:
-        return self.snapshot_dir / f"{sighting_id}.jpg"
+    def snapshot_path(self, sighting_id: int, version: int = 0) -> Path:
+        # Version 0 is the single unversioned photo of sightings recorded before versioning.
+        name = f"{sighting_id}.jpg" if version <= 0 else f"{sighting_id}_v{version}.jpg"
+        return self.snapshot_dir / name
 
     def list(
         self,
@@ -235,6 +274,62 @@ class SightingStore:
     def get(self, sighting_id: int) -> Optional[SightingRecord]:
         with Session(self._engine) as session:
             return session.get(SightingRecord, sighting_id)
+
+    def record_spray(
+        self,
+        robot_id: str,
+        trigger: str,
+        duration: float,
+        label: Optional[str] = None,
+        confidence: Optional[float] = None,
+    ) -> SprayRecord:
+        record = SprayRecord(
+            robot_id=robot_id,
+            time=self._clock(),
+            trigger=trigger,
+            label=label,
+            confidence=confidence,
+            duration=duration,
+        )
+        with Session(self._engine) as session:
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+        logger.info("Spray by %s (%s, %.1fs%s)", robot_id, trigger, duration, f", {label}" if label else "")
+        return record
+
+    def list_sprays(self, robot_id: Optional[str] = None, limit: int = 50) -> List[SprayRecord]:
+        query = select(SprayRecord).order_by(SprayRecord.id.desc()).limit(limit)
+        if robot_id:
+            query = query.where(SprayRecord.robot_id == robot_id)
+        with Session(self._engine) as session:
+            return list(session.exec(query).all())
+
+    def spray_counts(self, sightings: List[SightingRecord]) -> Dict[int, int]:
+        """How many sprays targeted each sighting: same robot and pest, during it (or just after)."""
+        if not sightings:
+            return {}
+        earliest = min(s.first_seen for s in sightings)
+        latest = max(s.last_seen for s in sightings) + self._gap
+        robot_ids = {s.robot_id for s in sightings}
+        query = select(SprayRecord).where(
+            SprayRecord.time >= earliest,
+            SprayRecord.time <= latest,
+            SprayRecord.robot_id.in_(robot_ids),
+            SprayRecord.label.is_not(None),
+        )
+        with Session(self._engine) as session:
+            sprays = list(session.exec(query).all())
+        counts: Dict[int, int] = {}
+        for sighting in sightings:
+            counts[sighting.id] = sum(
+                1
+                for spray in sprays
+                if spray.robot_id == sighting.robot_id
+                and spray.label == sighting.label
+                and sighting.first_seen <= spray.time <= sighting.last_seen + self._gap
+            )
+        return counts
 
     def summary(self, robot_id: Optional[str] = None, since: Optional[datetime] = None) -> List[dict]:
         """Sightings per pest type, most frequent first."""

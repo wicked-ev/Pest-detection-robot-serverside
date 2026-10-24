@@ -49,8 +49,10 @@ Detection messages look like:
 - `GET /health`
 - `GET /api/robots`, `GET /api/robots/{robot_id}`, `POST /api/robots/register` (`{robot_id, name, ip_address?}`)
 - `DELETE /api/robots/{robot_id}`: removes a robot from the list (409 while it is connected); its history is kept.
-- `POST /api/robots/{robot_id}/command` (`{command}`): one of `start_stream`, `stop_stream`, `halt` (stop motors),
-  `reboot`, `shutdown`. Returns 409 if the robot is not connected.
+- `POST /api/robots/{robot_id}/command` (`{command, ...}`): `start_stream`, `stop_stream`,
+  `move` (`direction`, `speed` 10-100), `halt` (stop wheels and sprayer), `spray` (`duration` up to 5 s),
+  `set_auto_spray` (`enabled`), `reboot`, `shutdown`. Returns 409 if the robot is not connected.
+  Robots in the API include `live`: their last reported `state`, `motors`, `auto_spray`, `spraying`, `driving`.
 - `GET /api/models`, `GET /api/models/{name}`, `GET /api/models/{name}/availability`
 
 ## Detection history
@@ -64,7 +66,10 @@ Nothing is deleted automatically.
 - `GET /api/sightings?robot_id=&label=&since=&before_id=&limit=`: newest first. For the next page,
   pass the last `id` you received as `before_id`. `since` is an ISO 8601 time.
 - `GET /api/sightings/summary?robot_id=&since=`: number of sightings per pest type.
-- `GET /api/sightings/{id}` and `GET /api/sightings/{id}/snapshot` (the JPEG photo).
+- `GET /api/sightings/{id}` and `GET /api/sightings/{id}/snapshot?v=` (the JPEG photo; `v` is the
+  photo version in `snapshot_url`, so the photo always matches the boxes returned with it).
+- `GET /api/sprays?robot_id=&limit=`: sprays reported by robots (newest first). Each sighting has
+  `sprays`: how many sprays targeted that pest while it was in view.
 
 Each sighting includes `boxes` (in photo pixels) and `image_width`/`image_height`, so the
 dashboard draws the boxes over the photo.
