@@ -6,7 +6,7 @@ import { useRobotsContext } from '../context/RobotsContext'
  * Poll /api/robots every 5 seconds and update global context.
  */
 export function useRobots() {
-  const { updateRobots, registerRefreshRobots } = useRobotsContext()
+  const { updateRobots, registerRefreshRobots, setRobotsError } = useRobotsContext()
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
   const pollTimeoutRef = useRef(null)
@@ -35,10 +35,12 @@ export function useRobots() {
       if (activeRequestIdRef.current === requestId) {
         updateRobots(data)
         setError(null)
+        setRobotsError(null)
       }
     } catch (err) {
       if (err.name !== 'AbortError' && activeRequestIdRef.current === requestId) {
         setError(err.message)
+        setRobotsError(err.message)
       }
     } finally {
       if (abortControllerRef.current === controller) {
@@ -52,7 +54,7 @@ export function useRobots() {
         }, 5000)
       }
     }
-  }, [updateRobots])
+  }, [updateRobots, setRobotsError])
 
   useEffect(() => {
     registerRefreshRobots(fetchRobots)

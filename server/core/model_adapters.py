@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,10 +88,25 @@ class ModelAdapter(ABC):
         self.model_name = model_path.stem
         self.architecture = "generic"
         self._loaded = False
+        self._load_lock = threading.Lock()
 
     @abstractmethod
     def load(self) -> None:
         raise NotImplementedError
+
+    def ensure_loaded(self) -> None:
+        """Load the model if needed; safe to call from several threads at once.
+
+        Callers should use this rather than load(): the startup preload and the first
+        frame can both arrive here, and only one of them may run the (slow) load.
+        Threads that arrive during a load wait for it to finish. A failed load leaves
+        the model unloaded, so the next call tries again.
+        """
+        if self._loaded:
+            return
+        with self._load_lock:
+            if not self._loaded:
+                self.load()
 
     @abstractmethod
     def infer(self, image: Image.Image) -> dict:

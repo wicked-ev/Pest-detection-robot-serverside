@@ -13,8 +13,8 @@ export function AddRobotModal({ onClose }) {
   const [errorMessage, setErrorMessage] = useState('')
 
   const handleSubmit = async () => {
-    if (!robotId.trim() || !name.trim() || !ipAddress.trim()) {
-      setErrorMessage('All fields are required')
+    if (!robotId.trim() || !name.trim()) {
+      setErrorMessage('Robot ID and name are required')
       setState('error')
       return
     }
@@ -23,7 +23,7 @@ export function AddRobotModal({ onClose }) {
       setIsLoading(true)
       setState('idle')
       setErrorMessage('')
-      await APIClient.registerRobot(robotId, name, ipAddress)
+      await APIClient.registerRobot(robotId.trim(), name.trim(), ipAddress.trim() || null)
       await refreshRobots?.()
       setState('success')
       setTimeout(() => {
@@ -65,6 +65,11 @@ export function AddRobotModal({ onClose }) {
           </div>
         )}
 
+        <p className="mb-4 text-sm text-text-secondary">
+          Robots that have the robot key add themselves when they connect. Add one here only to give it a
+          name in advance; the ID must match the robot's <code>ROBOT_ID</code>.
+        </p>
+
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-text-primary mb-2">
@@ -96,7 +101,7 @@ export function AddRobotModal({ onClose }) {
 
           <div>
             <label className="block text-sm font-medium text-text-primary mb-2">
-              IP Address
+              IP address <span className="text-text-secondary font-normal">(optional)</span>
             </label>
             <input
               type="text"

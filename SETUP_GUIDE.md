@@ -23,35 +23,45 @@ dashboard/
     │   └── websocket.js        # RobotWebSocket manager class
     │
     ├── context/
-    │   └── RobotsContext.jsx    # Global robot state (Context + useRobotsContext hook)
+    │   └── RobotsContext.jsx    # Robots, selected robot, current page (Live/History)
     │
     ├── hooks/
     │   ├── useRobots.js        # Poll /api/robots every 5s
-    │   └── useRobotStream.js   # Viewer WebSocket: live frames + detections
+    │   ├── useRobotStream.js   # Viewer WebSocket: live frames + detections
+    │   └── useSightings.js     # Detection history with paging and auto-refresh
+    │
+    ├── utils/
+    │   └── time.js             # "2 min ago", dates, durations
     │
     ├── components/
+    │   ├── common/
+    │   │   ├── BoxOverlay.jsx      # SVG detection boxes over any image
+    │   │   └── Panel.jsx           # Bordered section box
+    │   │
     │   ├── layout/
-    │   │   ├── TopBar.jsx          # Server health + title + timestamp
-    │   │   └── Sidebar.jsx         # Robot list + Add button
+    │   │   ├── TopBar.jsx          # Title, Live/History tabs, server status
+    │   │   └── Sidebar.jsx         # Robot list + Add
     │   │
     │   ├── robots/
-    │   │   ├── RobotCard.jsx       # Individual robot card with selection
-    │   │   ├── RobotStatusBadge.jsx # Status indicator
-    │   │   └── AddRobotModal.jsx   # Robot registration form
+    │   │   ├── RobotCard.jsx       # One robot in the list
+    │   │   ├── RobotStatusBadge.jsx # Online/offline badge
+    │   │   └── AddRobotModal.jsx   # Name a robot in advance
     │   │
     │   ├── stream/
-    │   │   ├── StreamView.jsx      # Live feed + start/stop controls
-    │   │   └── DetectionOverlay.jsx # Canvas with bounding boxes
+    │   │   └── StreamView.jsx      # Live feed with boxes + start/stop
     │   │
     │   ├── controls/
     │   │   └── CommandPanel.jsx    # Stop motors / Reboot / Shutdown
     │   │
-    │   └── charts/
-    │       └── DetectionChart.jsx  # Recharts area chart (last 60)
+    │   └── history/
+    │       ├── SightingPhoto.jsx   # Sighting photo with its boxes
+    │       ├── SightingCard.jsx    # One sighting in a grid
+    │       ├── SightingModal.jsx   # Full photo and details
+    │       └── RecentSightings.jsx # Latest sightings on the robot page
     │
     └── pages/
-        ├── Dashboard.jsx      # Main layout (router-like structure)
-        └── RobotDetail.jsx    # Split view: stream + info/controls
+        ├── RobotDetail.jsx    # Live page: stream, controls, recent sightings
+        └── History.jsx        # History page: filters, per-pest counts, sightings
 ```
 
 ## Quick Start
@@ -112,10 +122,13 @@ cp .env.example .env         # set ROBOT_KEY, the same value as on the Pi
    - Reboot and Shutdown (both ask for confirmation)
    - Wi-Fi is set up on the robot's own hotspot, not from the dashboard
 
-### 5. **Detection Analytics**
-   - Real-time confidence score chart (last 60 points)
-   - Latest detection labels
-   - Bounding box overlay with label + confidence %
+### 5. **Detection History**
+   - History tab: every pest sighting with its photo, filterable by robot, pest and time range
+   - Per-pest counts; click a sighting for the full photo and details
+   - The robot page shows its latest sightings next to the live stream
+
+### 6. **Live Detection Overlay**
+   - Boxes with pest name + confidence % drawn over the live stream
 
 ### 6. **Dark Theme**
    - Minimal, clean aesthetic (Vercel/Linear inspired)
@@ -198,8 +211,6 @@ Output: `dist/` directory ready for deployment.
 
 - [ ] `client.js` — Add auth token headers to fetch calls when auth is implemented
 - [ ] `RobotDetail.jsx` — Model selection UI for switching models mid-stream
-- [ ] `RobotCard.jsx` — Add click handler for robot settings/details panel
-- [ ] `Dashboard.jsx` — Implement sidebar collapse for mobile
 
 ## Troubleshooting
 

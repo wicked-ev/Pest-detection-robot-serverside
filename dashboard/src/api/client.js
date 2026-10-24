@@ -1,6 +1,12 @@
 // Empty by default: requests stay same-origin and the Vite dev proxy forwards them to the server.
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
+// Builds "?a=1&b=2", skipping empty values.
+function queryString(params) {
+  const entries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "");
+  return entries.length ? `?${new URLSearchParams(entries)}` : "";
+}
+
 export class APIClient {
   static async request(endpoint, options = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
@@ -44,8 +50,8 @@ export class APIClient {
     return this.get("/health");
   }
 
-  static async getRobots() {
-    return this.get("/api/robots");
+  static async getRobots(options = {}) {
+    return this.get("/api/robots", options);
   }
 
   static async getRobot(robotId) {
@@ -58,6 +64,18 @@ export class APIClient {
       name,
       ip_address: ipAddress,
     });
+  }
+
+  static async deleteRobot(robotId) {
+    return this.request(`/api/robots/${encodeURIComponent(robotId)}`, { method: "DELETE" });
+  }
+
+  static async getSightings(filters = {}) {
+    return this.get(`/api/sightings${queryString(filters)}`);
+  }
+
+  static async getSightingSummary(filters = {}) {
+    return this.get(`/api/sightings/summary${queryString(filters)}`);
   }
 
   static async sendCommand(robotId, command) {

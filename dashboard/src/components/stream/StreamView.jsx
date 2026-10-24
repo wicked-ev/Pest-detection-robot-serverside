@@ -1,104 +1,77 @@
-import { useRef, useState } from 'react'
-import { Play, Square } from 'lucide-react'
-import DetectionOverlay from './DetectionOverlay'
+import { useState } from 'react'
+import { Play, Square, VideoOff } from 'lucide-react'
 import APIClient from '../../api/client'
 import { useRobotsContext } from '../../context/RobotsContext'
+import BoxOverlay from '../common/BoxOverlay'
 
 export function StreamView({ robotId, stream, isOnline, isStreaming }) {
   const { frameUrl, detections, fps } = stream
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
-  const imgRef = useRef(null)
-  const [imgDimensions, setImgDimensions] = useState({ width: 640, height: 640 })
+  const [frameSize, setFrameSize] = useState(null)
   const { refreshRobots } = useRobotsContext()
 
-  const handleStartStream = async () => {
+  const sendStreamCommand = async (command) => {
     try {
       setIsLoading(true)
       setError(null)
-      await APIClient.sendCommand(robotId, 'start_stream')
+      await APIClient.sendCommand(robotId, command)
       await refreshRobots?.()
     } catch (err) {
       setError(err.message)
-      console.error('Failed to start stream:', err)
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleStopStream = async () => {
-    try {
-      setIsLoading(true)
-      setError(null)
-      await APIClient.sendCommand(robotId, 'stop_stream')
-      await refreshRobots?.()
-    } catch (err) {
-      setError(err.message)
-      console.error('Failed to stop stream:', err)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleImageLoad = () => {
-    const img = imgRef.current
-    if (img && (img.naturalWidth !== imgDimensions.width || img.naturalHeight !== imgDimensions.height)) {
-      setImgDimensions({ width: img.naturalWidth, height: img.naturalHeight })
-    }
-  }
+  // Detections carry the size of the frame they were computed on; fall back to the image's own size.
+  const [width, height] = detections?.image_size || frameSize || []
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="relative bg-background border border-border rounded-card overflow-hidden flex items-center justify-center" style={{ aspectRatio: '16/9' }}>
+    <div className="space-y-3">
+      <div className="relative bg-background border border-border rounded-card overflow-hidden">
         {frameUrl ? (
           <>
             <img
-              ref={imgRef}
               src={frameUrl}
-              onLoad={handleImageLoad}
-              alt="Robot stream"
-              className="w-full h-full object-contain"
+              alt="Live camera feed"
+              className="block w-full h-auto"
+              onLoad={(e) => setFrameSize([e.currentTarget.naturalWidth, e.currentTarget.naturalHeight])}
             />
             {detections && (
-              <DetectionOverlay
-                detections={detections}
-                imageWidth={imgDimensions.width}
-                imageHeight={imgDimensions.height}
+              <BoxOverlay
+                width={width}
+                height={height}
+                boxes={detections.boxes}
+                labels={detections.labels}
+                scores={detections.scores}
               />
             )}
-            <div className="absolute top-4 right-4 bg-background/80 px-3 py-1 rounded-button text-sm font-medium">
+            <span className="absolute top-3 right-3 bg-background/80 px-2 py-1 rounded-button text-xs font-medium">
               {fps} FPS
-            </div>
+            </span>
           </>
         ) : (
-          <div className="text-center text-text-secondary">
-            <p className="text-lg font-medium mb-2">No Signal</p>
-            <p className="text-sm">Waiting for stream...</p>
+          <div className="aspect-video flex flex-col items-center justify-center gap-2 text-text-secondary">
+            <VideoOff size={28} />
+            <p className="font-medium">No video</p>
+            <p className="text-sm">
+              {!isOnline ? 'The robot is offline.' : isStreaming ? 'Waiting for frames…' : 'Start the stream to see the camera.'}
+            </p>
           </div>
         )}
       </div>
 
-      <div className="flex gap-2">
-        {!isStreaming ? (
-          <button
-            onClick={handleStartStream}
-            disabled={isLoading || !isOnline}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-accent text-background font-medium rounded-button hover:opacity-90 disabled:opacity-50 transition"
-          >
-            <Play size={18} />
-            <span>Start Stream</span>
-          </button>
-        ) : (
-          <button
-            onClick={handleStopStream}
-            disabled={isLoading || !isOnline}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-danger text-background font-medium rounded-button hover:opacity-90 disabled:opacity-50 transition"
-          >
-            <Square size={18} />
-            <span>Stop Stream</span>
-          </button>
-        )}
-      </div>
+      <button
+        onClick={() => sendStreamCommand(isStreaming ? 'stop_stream' : 'start_stream')}
+        disabled={isLoading || !isOnline}
+        className={`w-full flex items-center justify-center gap-2 px-4 py-2 font-medium rounded-button hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition ${
+          isStreaming ? 'bg-danger text-background' : 'bg-accent text-background'
+        }`}
+      >
+        {isStreaming ? <Square size={18} /> : <Play size={18} />}
+        <span>{isStreaming ? 'Stop stream' : 'Start stream'}</span>
+      </button>
       {error && <p className="text-sm text-danger">{error}</p>}
     </div>
   )

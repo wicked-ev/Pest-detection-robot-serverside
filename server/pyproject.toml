@@ -16,3 +16,25 @@ dependencies = [
     "uvicorn[standard]>=0.48.0",
     "websockets>=16.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-timeout>=2.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# A hung websocket test fails after this many seconds instead of blocking forever.
+timeout = 30
+# Tests marked slow load the real 121 MB model; run them with: pytest -m slow
+addopts = "-m 'not slow'"
+markers = ["slow: needs models/pest_model.pt and loads the real RF-DETR model"]
+# Deprecated calls in our own code fail the tests, so they are fixed before they break.
+# (Warnings raised inside libraries such as torch or rfdetr stay plain warnings.)
+filterwarnings = [
+    "error::DeprecationWarning:core",
+    "error::DeprecationWarning:routers",
+    "error::DeprecationWarning:main",
+]

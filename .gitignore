@@ -2,13 +2,15 @@
 .venv/
 __pycache__/
 *.py[oc]
+.pytest_cache/
 
 # Local configuration and secrets
 .env
 !.env.example
 
-# Runtime data
+# Runtime data (database and sighting photos)
 server/robot_store.db
+server/data/
 
 # Model weights and dataset annotations are too large for git (GitHub rejects files over 100 MB).
 # See server/models/README.md for where to get them.

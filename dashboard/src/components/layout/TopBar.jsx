@@ -1,48 +1,65 @@
 import { useEffect, useState } from 'react'
-import { AlertCircle } from 'lucide-react'
 import APIClient from '../../api/client'
+import { useRobotsContext } from '../../context/RobotsContext'
+
+const TABS = [
+  { id: 'live', label: 'Live' },
+  { id: 'history', label: 'History' },
+]
 
 export function TopBar() {
-  const [serverHealth, setServerHealth] = useState(null)
-  const [lastUpdated, setLastUpdated] = useState(null)
-  const [isOffline, setIsOffline] = useState(false)
+  const { view, setView } = useRobotsContext()
+  const [serverUp, setServerUp] = useState(null)
 
   useEffect(() => {
     const checkHealth = async () => {
       try {
-        const health = await APIClient.getHealth()
-        setServerHealth(health)
-        setIsOffline(false)
-        setLastUpdated(new Date().toLocaleTimeString())
-      } catch (err) {
-        setIsOffline(true)
+        await APIClient.getHealth()
+        setServerUp(true)
+      } catch {
+        setServerUp(false)
       }
     }
-
-    checkHealth()
+    void checkHealth()
     const interval = setInterval(checkHealth, 10000)
     return () => clearInterval(interval)
   }, [])
 
   return (
-    <div className="h-16 border-b border-border bg-surface flex items-center justify-between px-6">
-      <div className="flex items-center gap-3">
-        <div className={`w-3 h-3 rounded-full ${isOffline ? 'bg-danger' : 'bg-accent'}`} />
-        <h1 className="text-xl font-semibold">Pest Monitor</h1>
-      </div>
+    <header className="h-14 shrink-0 border-b border-border bg-surface flex items-center gap-6 px-4 md:px-6">
+      <h1 className="text-lg font-semibold whitespace-nowrap">Pest Monitor</h1>
 
-      <div className="flex items-center gap-6 text-sm text-text-secondary">
-        {isOffline && (
-          <div className="flex items-center gap-2 text-danger">
-            <AlertCircle size={16} />
-            <span>Server Offline</span>
-          </div>
-        )}
-        {!isOffline && lastUpdated && (
-          <span>Last updated: {lastUpdated}</span>
-        )}
+      <nav className="flex gap-1" aria-label="Pages">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setView(tab.id)}
+            aria-current={view === tab.id ? 'page' : undefined}
+            className={`px-3 py-1.5 rounded-button text-sm font-medium transition ${
+              view === tab.id ? 'bg-border text-text-primary' : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      <div
+        className="ml-auto flex items-center gap-2 text-sm"
+        role="status"
+        title={serverUp === false ? 'Server offline' : 'Server connected'}
+      >
+        <span
+          className={`w-2 h-2 rounded-full shrink-0 ${
+            serverUp === null ? 'bg-text-secondary' : serverUp ? 'bg-accent' : 'bg-danger'
+          }`}
+        />
+        {/* On narrow screens only the dot is shown; the text is in the tooltip. */}
+        <span className={`hidden sm:inline whitespace-nowrap ${serverUp === false ? 'text-danger' : 'text-text-secondary'}`}>
+          {serverUp === false ? 'Server offline' : 'Server connected'}
+        </span>
       </div>
-    </div>
+    </header>
   )
 }
 

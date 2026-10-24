@@ -1,32 +1,30 @@
 import { useRobotsContext } from '../../context/RobotsContext'
 import RobotStatusBadge from './RobotStatusBadge'
+import { formatRelative } from '../../utils/time'
 
 export function RobotCard({ robot }) {
-  const { selectedRobotId, selectRobot } = useRobotsContext()
-  const isSelected = selectedRobotId === robot.robot_id
-
-  const lastSeenText = robot.last_seen
-    ? `${new Date(robot.last_seen).toLocaleTimeString()}`
-    : 'Never'
+  const { selectedRobotId, selectRobot, view } = useRobotsContext()
+  const isSelected = view === 'live' && selectedRobotId === robot.robot_id
+  const details = [
+    robot.name !== robot.robot_id ? robot.robot_id : null,
+    robot.streaming ? 'streaming' : null,
+    formatRelative(robot.last_seen),
+  ].filter(Boolean)
 
   return (
-    <div
+    <button
       onClick={() => selectRobot(robot.robot_id)}
-      className={`p-4 rounded-card border cursor-pointer transition ${
-        isSelected
-          ? 'bg-surface border-accent'
-          : 'bg-background border-border hover:bg-[#1a1a1a]'
+      aria-current={isSelected ? 'true' : undefined}
+      className={`w-full text-left p-3 rounded-card border transition ${
+        isSelected ? 'bg-background border-accent' : 'bg-background border-border hover:border-text-secondary'
       }`}
     >
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex-1 min-w-0">
-          <h3 className="font-medium truncate">{robot.name}</h3>
-          <p className="text-xs text-text-secondary truncate">{robot.robot_id}</p>
-        </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium truncate">{robot.name}</span>
         <RobotStatusBadge status={robot.status} />
       </div>
-      <p className="text-xs text-text-secondary">Last seen: {lastSeenText}</p>
-    </div>
+      <p className="mt-1 text-xs text-text-secondary truncate">{details.join(' · ')}</p>
+    </button>
   )
 }
 

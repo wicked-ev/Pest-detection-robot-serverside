@@ -5,7 +5,8 @@ export function RobotStatusBadge({ status }) {
   }
 
   const config = statusConfig[status] || statusConfig.offline
-  const displayStatus = status.charAt(0).toUpperCase() + status.slice(1)
+  const label = status || 'offline'
+  const displayStatus = label.charAt(0).toUpperCase() + label.slice(1)
 
   return (
     <span className={`${config.bg} ${config.text} text-xs font-medium px-2 py-1 rounded-button whitespace-nowrap`}>

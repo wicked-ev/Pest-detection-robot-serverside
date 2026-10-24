@@ -4,21 +4,22 @@ import APIClient from '../../api/client'
 import { useRobotsContext } from '../../context/RobotsContext'
 
 // Stream start/stop lives in StreamView. "halt" only stops the motors;
-// "shutdown" powers the robot off, so it and "reboot" ask for confirmation.
+// "reboot" restarts and "shutdown" stops the robot's program (not the Pi itself),
+// so both ask for confirmation.
 const COMMANDS = [
   { label: 'Stop Motors', command: 'halt', icon: Hand },
   {
     label: 'Reboot',
     command: 'reboot',
     icon: RotateCcw,
-    confirm: 'Reboot the robot? It will be offline for a minute or two.',
+    confirm: 'Restart the robot software? It will be offline for a few seconds.',
   },
   {
     label: 'Shutdown',
     command: 'shutdown',
     icon: Power,
     danger: true,
-    confirm: 'Shut the robot down? You will need physical access to turn it back on.',
+    confirm: 'Stop the robot software? It stays stopped until it is started again on the robot.',
   },
 ]
 

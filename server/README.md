@@ -47,13 +47,49 @@ Detection messages look like:
 ## REST API
 
 - `GET /health`
-- `GET /api/robots`, `GET /api/robots/{robot_id}`, `POST /api/robots/register` (`{robot_id, name, ip_address}`)
+- `GET /api/robots`, `GET /api/robots/{robot_id}`, `POST /api/robots/register` (`{robot_id, name, ip_address?}`)
+- `DELETE /api/robots/{robot_id}`: removes a robot from the list (409 while it is connected); its history is kept.
 - `POST /api/robots/{robot_id}/command` (`{command}`): one of `start_stream`, `stop_stream`, `halt` (stop motors),
   `reboot`, `shutdown`. Returns 409 if the robot is not connected.
 - `GET /api/models`, `GET /api/models/{name}`, `GET /api/models/{name}/availability`
 
+## Detection history
+
+Detections are grouped into **sightings**: one pest type seen by one robot. Frames of the same
+pest less than 30 seconds apart extend the current sighting (frame count, last seen, and the
+photo of its most confident frame) instead of adding rows. Sightings are stored in the `sighting`
+table of `robot_store.db`, with one photo each in `server/data/snapshots/<id>.jpg`.
+Nothing is deleted automatically.
+
+- `GET /api/sightings?robot_id=&label=&since=&before_id=&limit=`: newest first. For the next page,
+  pass the last `id` you received as `before_id`. `since` is an ISO 8601 time.
+- `GET /api/sightings/summary?robot_id=&since=`: number of sightings per pest type.
+- `GET /api/sightings/{id}` and `GET /api/sightings/{id}/snapshot` (the JPEG photo).
+
+Each sighting includes `boxes` (in photo pixels) and `image_width`/`image_height`, so the
+dashboard draws the boxes over the photo.
+
 Wi-Fi setup is not done through the server: an unprovisioned robot has no network.
 The Pi starts its own hotspot for that (see the Pi project's `services/wifi_service.py`).
+
+## Tests
+
+```bash
+uv sync                                # installs pytest (dev dependency) the first time
+.venv/Scripts/python -m pytest         # fast suite, ~4 s, uses a fake model
+.venv/Scripts/python -m pytest -m slow # only the slow test: loads the real models/pest_model.pt
+```
+
+- `tests/test_robot_connections.py`: robot key, self-registration, heartbeats and online/offline,
+  commands, reconnects, streaming, and dashboard viewers.
+- `tests/test_workers.py`: the inference worker (only the newest frame is processed) and viewer hub.
+- `tests/test_model_adapters.py`: class-ID-to-pest-name mapping and RF-DETR checkpoint loading.
+- `tests/test_model_loading.py`: the model loads once, and frames sent while it loads are not dropped.
+- `tests/test_robot_store.py`: how often detections are written, timestamps, and startup cleanup.
+- `tests/test_sightings.py`: grouping detections into sightings, photos, paging, and the history API.
+
+Tests build the app with `create_app(model_registry=..., db_url=...)` in `main.py`, so they use a
+temporary database and never touch `robot_store.db` or your `.env` key.
 
 ## Testing without the Pi
 
