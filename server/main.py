@@ -16,6 +16,7 @@ if load_dotenv is not None:
     load_dotenv(Path(__file__).parent / ".env")
 
 from core.auth import warn_if_auth_disabled
+from core.background import run_in_daemon_thread
 from core.inference_worker import InferenceWorker
 from core.model_adapters import ModelRegistry
 from core.robot_store import RobotStore
@@ -90,7 +91,8 @@ def create_app(
             try:
                 adapter = app.state.model_registry.get(default_model_name)
                 logger.info("Preloading default model %s in background", default_model_name)
-                await asyncio.to_thread(adapter.ensure_loaded)
+                # Daemon thread: stopping the server mid-load must not wait for the load.
+                await run_in_daemon_thread(adapter.ensure_loaded, name="model-preload")
                 logger.info("Preloaded default model %s", default_model_name)
             except Exception:
                 logger.exception("Failed to preload default model %s", default_model_name)

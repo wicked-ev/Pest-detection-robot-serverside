@@ -6,6 +6,7 @@ from typing import Awaitable, Callable, Dict, Optional, Tuple
 import numpy as np
 from PIL import Image
 
+from .background import run_in_daemon_thread
 from .model_adapters import ModelAdapter, ModelRegistry
 from .robot_store import RobotStore
 from .sightings import SightingStore
@@ -96,7 +97,7 @@ class InferenceWorker:
                     adapter = self._get_adapter(model_name)
                     # Loading is not covered by the inference timeout: the first load takes
                     # several seconds, and timing it out would silently drop the frame.
-                    await asyncio.to_thread(adapter.ensure_loaded)
+                    await run_in_daemon_thread(adapter.ensure_loaded, name="model-load")
                     result = await asyncio.wait_for(
                         asyncio.to_thread(self._infer, jpeg_bytes, adapter),
                         timeout=INFERENCE_TIMEOUT_SECONDS,

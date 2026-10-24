@@ -9,8 +9,13 @@ and relays the live feed and detections to the dashboard.
 cd server
 uv sync                      # or: python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 cp .env.example .env         # then set ROBOT_KEY (same value as on the Pi)
-.venv/Scripts/python -m uvicorn main:app --host 0.0.0.0 --port 8000
+.venv/Scripts/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5
 ```
+
+`--timeout-graceful-shutdown 5` makes Ctrl+C finish within a few seconds even if a connection
+never closes; pending detections and sightings are still saved. Or start everything with
+`python dev.py` from the repository root, which starts the server and then the dashboard
+(see `SETUP_GUIDE.md`).
 
 Put the model files in `models/` first (see [models/README.md](models/README.md)).
 Wait for `Preloaded default model pest_model` in the log before sending frames.

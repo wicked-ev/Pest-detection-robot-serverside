@@ -66,35 +66,52 @@ dashboard/
 
 ## Quick Start
 
-### 1. Install Dependencies
-
-```bash
-cd dashboard
-npm install
-```
-
-### 2. Start Development Server
-
-```bash
-npm run dev
-```
-
-The dashboard will be available at `http://localhost:5173`.
-
-**The dev server automatically proxies** `/api/*`, `/health` and `/ws/*` to the FastAPI server
-(`http://127.0.0.1:8000` unless `VITE_SERVER_URL` is set in `dashboard/.env.local`).
-
-### 3. Ensure FastAPI Server is Running
-
-On another terminal:
+### 1. One-time setup
 
 ```bash
 cd server
 uv sync                      # or: pip install -r requirements.txt
 cp .env.example .env         # set ROBOT_KEY, the same value as on the Pi
 # Place pest_model.pt and _annotations.coco.json in server/models/ (see server/models/README.md)
-.venv/Scripts/python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+The dashboard's packages are installed automatically on the first run.
+
+### 2. Start everything with one command
+
+From this folder (any Python 3.9+ works; it uses `server/.venv` for the server):
+
+```bash
+python dev.py
+```
+
+It starts the server, waits until it answers, then starts the dashboard, and shows both
+outputs in one window, labelled `[server]` and `[dashboard]`:
+
+- Dashboard: `http://localhost:5173` (it talks to this local server)
+- Server: `http://localhost:8000`, listening on the network so the robot can connect
+- **Ctrl+C stops both.** The server saves pending detections and sightings first. If you stop it
+  right after starting, it may print `Cancel 0 running task(s), timeout graceful shutdown exceeded`:
+  that only means a connection was slow to close, and nothing was lost.
+
+Options: `python dev.py --port 8000 --dashboard-port 5173`.
+
+### Starting them separately
+
+Server (in `server/`):
+
+```bash
+.venv/Scripts/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5
+```
+
+Dashboard (in `dashboard/`):
+
+```bash
+npm run dev
+```
+
+The dashboard dev server proxies `/api/*`, `/health` and `/ws/*` to the FastAPI server
+(`http://127.0.0.1:8000` unless `VITE_SERVER_URL` is set in `dashboard/.env.local`).
 
 ## Key Features Implemented
 
